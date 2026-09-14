@@ -18,6 +18,10 @@
 |------|------|------|
 | 2026-09-14 | 记忆体系采用 DSH 原生加载：只建 AGENTS.md / CONTEXT.md / LESSONS.md / .opencode 记忆区，**不建** `.opencode/opencode.json` | 会话运行在 DSH，AGENTS.md 自动注入；CONTEXT.md 与 LESSONS.md 由 AGENTS.md 的"会话启动必读"协议保证加载 |
 | 2026-09-14 | `/save` 指令不下沉到项目，复用全局 `~/.dsh/commands/save.md` | 全局版本已含"步骤 0 纠错检视"，闭环完整，避免重复定义 |
+| 2026-09-14 | `dsh-git-vcs` 入口采用**右侧栏 tab 类型**（`ctx.sidebarRightTabs.register` + `sidebar.right.pane.tab`），与官方「工作区文件」同机制；不用左侧栏 `sidebar.panellist` + `main` 全局面板 | 用户要求入口/面板与「工作区文件」完全一致；分栏、全屏、拖出浮窗由 ui-sidebar-right + dockkit 免费提供 |
+| 2026-09-14 | host↔client 走 `ctx.connection.rpc.handle('/git-vcs')` / `rpc.call`，不用生成式 Remote，也不自建 HTTP 路由 | 免 Typert 代码生成；认证与 Host/Origin 校验由 Connection 统一负责 |
+| 2026-09-14 | git 用 `ctx.subprocess.spawn` 的 argv 形式（非 `ctx.shell`），路径统一置于 `--` 之后 | 无 shell 解释面；cwd/argv 精确可控；输出可 collect + spill |
+| 2026-09-14 | host 半区**零运行时依赖**：不 import 任何 `@deepseek-ai/*` 值，`subprocess`/`connection` 用 `ctx.get()` 软依赖，配置不走 Schemastery `Config` | profile 侧免装依赖、隔离冒烟环境也能激活（实测 dsh-base 冒烟组合里两者都缺席）；代价是配置校验在 `normalizeConfig()` 里手写 |
 
 ## 已知全局问题
 
@@ -26,6 +30,9 @@
 - **pnpm 不在 PATH** → 先 `$env:Path = "C:\Users\zdz20\AppData\Roaming\npm;" + $env:Path`，可执行文件为 `C:\Users\zdz20\AppData\Roaming\npm\pnpm.cmd`。
 - **profile 目录在 workspace 外**（`~/.dsh/profiles/<name>`）→ `dsh plugin` 写入可能被沙箱拒绝，原样重试并带 `sandbox_permissions: danger-full-access` + justification。
 - **codebase-memory-mcp 已安装连通，但本项目未建索引** → 首次语义检索前需对本目录执行 `index_repository`。
+- **npm 默认缓存目录 `D:\zxh\deepseek\.npm-cache-tmp` 在沙箱外**（写入 EPERM）→ npm 命令改用 `--cache D:\zxh\code\git-plugin\.npm-cache`（已 gitignore）。
+- **跨盘符 `dsh plugin add` 会生成坏 junction**：插件在 `D:`、profile 在 `C:\Users\zdz20\.dsh\profiles\web`，pnpm 无法算相对路径 → 链接目标被拼成 `<profile>\D:\...`，dsh 判定 `declares no dsh.bundle`，插件不进 `dsh.profile.bundles`。修法：删链接后 `cmd /c mklink /J <profile>\node_modules\<pkg> <插件绝对路径>`，再 `dsh plugin --profile web install` 对账（详见 README「跨盘符安装坑」）。
+- **写 `~/.dsh/profiles/**` 需要提权**：本会话沙箱为 workspace-write，`dsh plugin add` 首次 EPERM；一次 danger-full-access 提权被用户拒绝后不再重试，改为把命令写进 README 由用户自行执行。
 
 ## 常用命令
 

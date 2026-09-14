@@ -52,7 +52,7 @@
 
 | 日期 | 错误做法 ❌ | 正确做法 ✅ | 原因 / 后果 | 关联文件/模块 |
 |------|------------|------------|-------------|---------------|
-| _(待填充)_ | - | - | - | - |
+| 2026-09-14 | 用户说"入口/面板要和官方某功能一样"时，只对齐**功能面**，自己另选一套机制（用 `sidebar.panellist` + `main` 全局面板做入口） | 先找到产品内该功能的**活实现**并照抄它的注册路径（本例：`dsh-client-ui-sidebar-files` 的两阶段 `sidebarRightTabs.register` + `sidebar.right.pane.tab` keyed 注册） | 机制选错要重做整个注册层与 UI 布局假设；而分栏 / 全屏 / 拖出浮窗这些能力本来可以白拿 | `lib/client.js`、`.opencode/tasks/task-001/context.md` |
 
 ### 工具链/构建与环境 规范
 
@@ -60,7 +60,9 @@
 
 | 日期 | 错误做法 ❌ | 正确做法 ✅ | 原因 / 后果 | 关联文件/模块 |
 |------|------------|------------|-------------|---------------|
-| _(待填充)_ | - | - | - | - |
+| 2026-09-14 | 照技能文档用 `--cache D:\zxh\deepseek\.npm-cache-tmp` 跑 npm，未先确认该路径是否在沙箱可写范围内 | npm/npx 的缓存目录一律放在**会话 workspace 内**（本项目用 `--cache D:\zxh\code\git-plugin\.npm-cache`，并加进 .gitignore） | 缓存目录在 workspace 外 → 每次 npm 调用都 EPERM 失败，误判为网络/registry 问题 | `.gitignore`、`.opencode/memory.md` |
+| 2026-09-14 | 插件在 D: 盘、profile 在 C: 盘时直接 `dsh plugin add <插件目录>`，没先确认 pnpm 能否算出相对路径 | 跨盘符时不要指望 `link:`：直接 `cmd /c mklink /J <profile>\node_modules\<pkg> <插件绝对路径>`，再 `dsh plugin --profile web install` 让 dsh 对账 bundles；或把插件放到与 profile 同盘 | pnpm 生成目标被拼错的坏 junction → dsh 判定 `declares no dsh.bundle`，插件只当普通依赖装、永不进层；profile 留下半装状态需手工清理 | `README.md`「跨盘符安装坑」、`~/.dsh/profiles/web` |
+| 2026-09-14 | 用户说"先写好、不用着急安装验证"之后，仍在推进安装与提权 | 用户要求先写代码时，安装/提权/真机验证一律停手，把命令写进 README 交给用户执行 | 提权被拒 + 环境留下坏链接，多花一轮清理；打断用户的节奏 | `README.md` 安装章节 |
 
 ---
 
