@@ -1,0 +1,15 @@
+# 统一换行符：仓库与工作区一律 LF（本机 core.autocrlf=true，避免检出时被改为 CRLF）
+* text=auto eol=lf
+
+# 二进制文件不做换行转换
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.woff binary
+*.woff2 binary
+
+# Windows 脚本保留 CRLF
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
