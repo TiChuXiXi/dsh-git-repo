@@ -133,3 +133,16 @@ node scripts\verify-host.mjs D:\zxh\code\git-plugin
 ```powershell
 dsh plugin --profile web remove dsh-git-vcs
 ```
+
+## 动态热加载验证版（临时，不落盘）
+
+在插件尚未装进 profile（跨盘符坏 junction）时，用 DSH 的动态 Cordis 插件机制做了一次**等价移植**，
+目的是先验证右侧栏 tab 机制与 host git 通路，不作为交付形态：
+
+- 动态插件 `gitvc-1` / `pkg-1`：host 半区用 `ctx.subprocess` 跑与本包同一套 git argv 语义的端点，
+  客户端半区照抄两阶段注册（`sidebarRightTabs.register` + `sidebar.right.pane.tab`）。
+- 与正式版的差异：配置硬编码（`allowWrite=true` / `allowDangerous=true` / **`allowPush=false`**），
+  没有 `repoRoot` 限定、没有 `consoleLimit` / `timeoutMs` 配置项，也没有走 `ctx.connection` 通道
+  （改用 Package 私有 `harness.handle` / `host.call`）；`dsh` 进程重启即消失。
+- 结论口径：动态版能验证 UI 与端点语义，**不能**验证 `dsh.client` 半区的闭包工厂产物格式——
+  那一步仍必须走上面的 junction 修法 + `dsh plugin --profile web install`。
