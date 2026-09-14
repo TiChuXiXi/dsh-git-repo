@@ -1,15 +1,17 @@
 # 依赖
 node_modules/
 
-# 构建产物（浏览器半区构建输出，由源码 + 构建命令生成）
-lib/
+# 构建产物（仅当后续改用 TS + tsdown 时出现）
 dist/
+
+# 注意：本插件是零构建路线，lib/client.js 是浏览器半区的产物本体（手写、直接提交），绝不能忽略 lib/
 
 # 日志与临时文件
 *.log
 npm-debug.log*
 pnpm-debug.log*
 .npm-cache-tmp/
+.npm-cache/
 
 # 编辑器 / 系统
 .DS_Store

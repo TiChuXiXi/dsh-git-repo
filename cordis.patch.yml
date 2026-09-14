@@ -1,0 +1,17 @@
+# dsh-git-vcs bundle patch —— 把插件行插入 profile 组合。
+# 行按【包名】引用（不是相对路径）：patch 只贡献配置，不改变 loader 的基准目录。
+# 安装：dsh plugin --profile web add <本目录>
+# 可调参数（全部有代码内默认值，缺省即默认；改这里会触发热替换）：
+#   allowWrite:    关闭所有写操作（默认 true）
+#   allowPush:     是否允许 push（默认 false）
+#   allowDangerous:是否允许 reset / revert / cherry-pick / 删除分支 / 丢弃改动（默认 true）
+#   gitPath:       git 可执行文件绝对路径，空 = 从 PATH 解析
+#   repoRoot:      限定可操作的仓库根，空 = 允许任意会话工作目录
+#   diffContextLines / maxOutputBytes / timeoutMs / autoRefreshSeconds
+- insert:
+    - id: git-vcs
+      name: dsh-git-vcs
+      config:
+        allowWrite: true
+        allowPush: false
+        allowDangerous: true

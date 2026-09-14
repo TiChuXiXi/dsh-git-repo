@@ -1,0 +1,135 @@
+# dsh-git-vcs
+
+DSH Web GUI 的 **Git 版本管理插件**：在右侧栏新增「版本管理」页，功能与界面参照 IntelliJ IDEA 的
+Version Control 工具窗（`Alt+9`）与 Commit 工具窗（`Alt+0`）。
+
+## 形态
+
+单包，host 半区 + 浏览器半区，**零构建**（手写闭包工厂，无 tsdown/无运行时依赖）：
+
+| 半区 | 文件 | 职责 |
+|------|------|------|
+| host | `index.js` | 用 `ctx.subprocess` 以 argv 形式执行 git；经 `ctx.connection.rpc.handle('/git-vcs')` 暴露端点；写操作门禁 |
+| 浏览器 | `lib/client.js` | 注册右侧栏 tab 类型（`ctx.sidebarRightTabs`）+ 正文（`sidebar.right.pane.tab`）；IDEA 风格 React UI |
+
+右侧栏的**分栏、全屏、拖出浮窗**由官方 `dsh-client-ui-sidebar-right` + `dockkit` 提供，本插件只贡献内容，
+不碰布局（tab 条上的分栏控件与形态切换按钮即是这些能力的入口）。
+
+## 安装
+
+```powershell
+$env:Path = "C:\Users\zdz20\AppData\Roaming\npm;" + $env:Path
+dsh plugin --profile web add D:\zxh\code\git-plugin
+dsh --profile web --dump-config | Select-String "dsh-git-vcs"   # 必须看到 "# == dsh-git-vcs" 层
+```
+
+**改完 host 半区必须重启 `dsh web`**（bundle 层在启动时加载，刷新页面不够）；
+只改 `lib/client.js` 时刷新页面即可。
+
+### ⚠️ 跨盘符安装坑（本机已踩到）
+
+插件目录在 `D:`，profile 在 `C:\Users\zdz20\.dsh\profiles\web`。pnpm 对跨盘符的 `link:`/`file:`
+无法算出相对路径，会生成**目标被拼错的坏 junction**，于是 `dsh` 的 bundle 对账读不到
+`node_modules/dsh-git-vcs/package.json`，判定"declares no dsh.bundle"，插件只当普通依赖装、
+**不进 `dsh.profile.bundles` 层**（现象：`dsh plugin add` 末尾提示 `declares no dsh.bundle`，
+`--dump-config` 里没有自己的层）。
+
+三条可行路线，任选其一：
+
+1. **手动建正确 junction，再让 dsh 自己对账**（推荐，改动最小）
+   ```powershell
+   $p = "$env:USERPROFILE\.dsh\profiles\web\node_modules\dsh-git-vcs"
+   cmd /c rmdir "$p"                                                     # 先删掉坏 junction（rmdir 只删链接）
+   cmd /c mklink /J "$p" "D:\zxh\code\git-plugin"
+   dsh plugin --profile web install                                       # 对账：自动把 dsh-git-vcs 追加进 bundles
+   dsh --profile web --dump-config | Select-String "dsh-git-vcs"
+   ```
+2. **把插件挪到 C: 盘同一盘符**，再 `dsh plugin --profile web add <新路径>`（例如 `%USERPROFILE%\code\dsh-git-vcs`）。
+3. **发布成 npm 包后按包名安装**（`dsh plugin --profile web add dsh-git-vcs`），走 registry 就没有跨盘符问题。
+
+清理残留（若第一次安装已经把坏依赖写进 profile 的 `package.json`）：
+
+```powershell
+dsh plugin --profile web remove dsh-git-vcs
+# remove 若也失败，手工删链接与依赖条目：
+cmd /c rmdir "$env:USERPROFILE\.dsh\profiles\web\node_modules\dsh-git-vcs"
+# 然后编辑 ~\.dsh\profiles\web\package.json，去掉 dependencies.dsh-git-vcs，并确认 dsh.profile.bundles 里没有它
+```
+
+## 自检
+
+不需要挂 profile，直接跑 host 半区（真实 git、只读端点，不改仓库状态）：
+
+```powershell
+node scripts\verify-host.mjs D:\zxh\code\git-plugin
+```
+
+覆盖：`repo/info` / `status` / `log` / `branches` / `diff` / `show` / `console/list` 的解析结果，
+未知端点错误码、`allowPush=false` 的 push 门禁、相对路径与非仓库目录的拒绝。
+
+浏览器半区没有等价的离线自检：它必须在真实 GUI 里加载，靠 DevTools Console 与
+`window.__DSH_BOOT__` 验证（见下）。
+
+## 使用
+
+右侧栏 tab 条的「+」或引导页胶囊 → **版本管理**。首次加入后右侧栏默认页会从「工作区文件」变为
+引导页（官方规则：引导入口多于一个时打开引导页），页面上有两个胶囊：工作区文件 / 版本管理。
+
+面板自上而下：
+
+- **工具栏**：当前分支（点击进分支页）、刷新、抓取、拉取、推送
+- **Tab**：变更 / 历史 / 分支 / 贮藏 / 命令
+- **变更**：按「冲突 / 未暂存 / 已暂存」分组，行内状态字母（蓝=修改、绿=新增、灰=删除、红=冲突），
+  勾选框决定本次提交包含哪些文件，行内可暂存 / 取消暂存 / 回滚；双击行看差异
+- **提交区**：提交信息（`Ctrl+Enter` 提交）、Amend、提交、提交并推送
+- **历史**：提交表（哈希 / 作者 / 日期 / 说明），选中后看变更文件与 patch，可复制哈希、拣选、回滚、软/混合/硬重置
+- **分支**：本地 / 远程分支列表，切换、合并、删除，以及「新建 / 新建并切换」
+- **贮藏**：stash 列表与 push / pop / apply / drop
+- **命令**：面板发起的每条 git 命令（argv、退出码、耗时、stdout/stderr）
+- **底部状态栏**：仓库根、当前分支、跟踪分支与 ahead/behind
+
+作用范围是**当前会话的工作目录**（`session.cwd`），与 IDEA 的「项目根」同义；切换会话即切换仓库。
+
+## 配置
+
+插件行的 `config`（见 `cordis.patch.yml`，改后触发热替换）：
+
+| 字段 | 默认 | 说明 |
+|------|------|------|
+| `allowWrite` | `true` | 关闭后所有写操作（暂存/提交/分支/贮藏…）直接报 `git-vcs/write-disabled` |
+| `allowPush` | **`false`** | 是否允许 push；关闭时按钮禁用并提示 |
+| `allowDangerous` | `true` | 是否允许 reset / revert / cherry-pick / 删分支 / 回滚文件 |
+| `gitPath` | `''` | git 可执行文件绝对路径，空 = 从 PATH 解析 |
+| `repoRoot` | `''` | 限定可操作的仓库根；空 = 允许任意会话工作目录 |
+| `diffContextLines` | `3` | 统一 diff 上下文行数 |
+| `maxOutputBytes` | `2097152` | 单条命令输出内存上限（超出保留尾部并标记截断） |
+| `timeoutMs` | `120000` | 单条命令超时 |
+| `autoRefreshSeconds` | `0` | 面板自动刷新间隔，0 = 关闭 |
+| `consoleLimit` | `200` | 命令流水保留条数 |
+
+> 本插件刻意**零运行时依赖**：host 半区不 import 任何 `@deepseek-ai/*` 值，`subprocess` / `connection`
+> 都用 `ctx.get()` 软依赖（缺席时记日志降级，不让插件停在 pending）；因此配置没有走 Schemastery
+> `Config` schema，而是在代码内 `normalizeConfig()` 合并默认值并做范围钳制。
+
+## 安全边界
+
+- git 一律以 **argv 形式**执行（`ctx.subprocess.spawn`，不经 shell），路径统一放在 `--` 之后，无注入面。
+- `cwd` 必须是绝对路径、存在且是目录；默认还要求它是 git 工作树（`rev-parse --show-toplevel`）；
+  配置 `repoRoot` 后限定在其之下。
+- 执行环境禁用交互提示（`GIT_TERMINAL_PROMPT=0` / `GIT_ASKPASS=echo`），避免凭据提示挂起。
+- 破坏性操作在 UI 内需二次确认（内联确认条），并有 `allowDangerous` / `allowPush` / `allowWrite` 三级开关。
+- RPC 走的 `ctx.connection` 通道自带 loopback + 签名 cookie 认证与 Host/Origin 校验。
+
+## 已知限制（v1）
+
+- 历史 tab 只列当前分支（勾选 `--all` 需手工改调用）；没有图形化分支图（Graph 列）。
+- 差异视图是统一 diff 文本，没有并排 diff、没有按 hunk/行勾选提交（Partial Commit）。
+- 没有 changelist 分组、没有 Shelf、没有多 VCS root、没有编辑器 gutter 标记（DSH 无编辑器面板可挂）。
+- 没有文件系统监听：自动刷新依赖 `autoRefreshSeconds` 或手动刷新。
+- 状态只在内存：刷新页面即重置（与官方右侧栏一致）。
+
+## 卸载
+
+```powershell
+dsh plugin --profile web remove dsh-git-vcs
+```
