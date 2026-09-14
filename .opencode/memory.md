@@ -33,6 +33,8 @@
 - **npm 默认缓存目录 `D:\zxh\deepseek\.npm-cache-tmp` 在沙箱外**（写入 EPERM）→ npm 命令改用 `--cache D:\zxh\code\git-plugin\.npm-cache`（已 gitignore）。
 - **跨盘符 `dsh plugin add` 会生成坏 junction**：插件在 `D:`、profile 在 `C:\Users\zdz20\.dsh\profiles\web`，pnpm 无法算相对路径 → 链接目标被拼成 `<profile>\D:\...`，dsh 判定 `declares no dsh.bundle`，插件不进 `dsh.profile.bundles`。修法：删链接后 `cmd /c mklink /J <profile>\node_modules\<pkg> <插件绝对路径>`，再 `dsh plugin --profile web install` 对账（详见 README「跨盘符安装坑」）。
 - **写 `~/.dsh/profiles/**` 需要提权**：本会话沙箱为 workspace-write，`dsh plugin add` 首次 EPERM；一次 danger-full-access 提权被用户拒绝后不再重试，改为把命令写进 README 由用户自行执行。
+- **沙箱内 git 网络操作的两个坑**（本机已实测）：①`http.sslBackend=schannel` 会 `SEC_E_NO_CREDENTIALS`，改用 `-c http.sslBackend=openssl`；②凭据助手（`credential-manager` / `store`）经 msys `sh -c` 启动，而沙箱下 `sh.exe` 建不了信号管道 → 助手与交互输入都不可用，必须绕开助手（push 到内嵌凭据的 URL）或提权执行。
+- **远端仓库**：`origin` = `https://github.com/TiChuXiXi/dsh-git-repo.git`（分支 `main`，已设上游）；远端初始只有一个 `Initial commit`（仅 LICENSE），已用 `--allow-unrelated-histories` 合并进本地历史。
 
 ## 常用命令
 
