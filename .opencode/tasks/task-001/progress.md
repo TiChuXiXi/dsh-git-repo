@@ -2,7 +2,7 @@
 
 ## 当前状态
 
-- **状态**: 实现完成，待安装验证（代码已提交，未进 profile）
+- **状态**: 动态版全部改进已同步回源码，静态校验 + host 自检全绿；仍待跨盘符安装与真机 UI 验证
 - **最后操作日期**: 2026-09-14
 
 ## 任务清单
@@ -11,33 +11,36 @@
 - [x] 调研 IDEA 版本管理工具功能面与 UI 结构
 - [x] 调研 host↔client 通信与 git 执行落点（`ctx.connection.rpc` / `ctx.subprocess`）
 - [x] 与用户确认 5 项边界（入口形态、包名 `dsh-git-vcs`、读写范围、不注册模型工具、零构建）
-- [x] 写 host 半区 `index.js`（21 个端点 + 三级写操作门禁）
+- [x] 写 host 半区 `index.js`（端点数见下 + 三级写操作门禁）
 - [x] 写浏览器半区 `lib/client.js`（右侧栏 tab 类型 + IDEA 风格 UI）
-- [x] 静态校验 + 隔离冒烟启动通过
+- [x] 以动态 Cordis 插件（`gitvc-1` / `pkg-1`…`pkg-4`）在当前页面热加载，验证机制与手感
+- [x] 把动态版改进同步回源码：缓存 + `repo/snapshot` 并发聚合 + `remote/list`；详情可关、Log 连线列、按提交建分支、Remotes 页、标题不裁、分阶段加载反馈
+- [x] 修 `parseStatus` 的 porcelain v2 path 下标 bug（`1 ` → 8 / `2 ` → 9 / `u ` → 10）
+- [x] 扩展 `scripts/verify-host.mjs`（snapshot / remote-list 断言、路径分隔符归一、去掉自相矛盾的重复断言）
 - [ ] 跨盘符安装（junction 修法，待用户执行 README 命令）
 - [ ] 真机 UI 验证（重启 `dsh web` → 刷新 → 引导页胶囊 / 面板 / 分栏 / 全屏 / 浮窗）
-- [ ] 运行 `scripts/verify-host.mjs`（用户要求先不急着验证）
 
 ## 验证记录
 
 - `node --check index.js` / `lib/client.js` / `scripts/verify-host.mjs`：全部通过
 - `validate-plugin.mjs`：**0 ERROR / 0 WARN**
-- `smoke-boot.mjs`（隔离 DSH_HOME）：**通过** —— 组合层 `# == dsh-git-vcs` 出现、启动无报错、`apply()` 打印了生效配置（顺带证明不导出 Schemastery `Config` 时 patch 行的 config 仍会透传）
-- `dsh --profile web --dump-config`：**未见本插件层**（跨盘符坏 junction → 未进 `dsh.profile.bundles`；本次未能重跑 dump-config，因 profile 写入被拒）
-- 真机实测：未做
+- `smoke-boot.mjs`（隔离 DSH_HOME）：**通过** —— 组合层 `# == dsh-git-vcs` 出现、启动无报错
+- `scripts/verify-host.mjs`（真实 git、只读）：**13 通过 / 0 失败**，含新增的 `repo/snapshot`、`remote/list`
+- `dsh --profile web --dump-config`：**未见本插件层**（跨盘符坏 junction → 未进 `dsh.profile.bundles`）
+- 动态版真机（`gitvc-1`）：右侧栏 tab、六个 tab、暂存 + 提交链路实测通过（用户用面板提交出 `3048f64 提交测试`）
+- 本包装进 profile 后的真机实测：未做
 
 ## 本次会话摘要
 
-### 2026-09-14
+### 2026-09-14（动态热加载 → 同步回源码）
 
 - **完成**：
-  - 调研并核实了三处真源——侧边栏面板行来自 `sidebar.panellist` 注册项、`selectPanel` 要求 `main` 有同 id 注册、官方「工作区文件」用的是右侧栏 tab 类型两阶段注册；host↔client 走 `ctx.connection.rpc.handle/call`；git 用 `ctx.subprocess` argv 形式。
-  - 按用户要求改为与「工作区文件」完全一致的机制，写出 `package.json` / `cordis.patch.yml` / `index.js` / `lib/client.js` / `README.md` / `scripts/verify-host.mjs`。
-  - 通过静态校验与隔离冒烟启动；提交 `e964185 feat: 新增 dsh-git-vcs 插件（右侧栏 Git 版本管理页）`。
+  - 用动态 Cordis 插件把插件移植进当前页面热加载（`gitvc-1`，4 个 Package），确认右侧栏 tab 机制与 host git 通路真实可用。
+  - 修 4 类问题：Log 表列错位（`tr` 上误用 `display:flex`）、提交详情加载态对 null 解属性崩溃、6 次往返 / 约 16 次串行 git 进程造成的 1–2s 卡顿、等待无任何反馈。
+  - 新增：Log 单轨连线列（无表头、无行分割线）、提交详情与文件差异默认隐藏且可 `×` 关闭、按提交建分支（`branch/create` + `startPoint`）、Remotes 页（`remote/list`）、tab 标题不裁（`nowrap` + `min-width`）。
+  - 同步回 `index.js` / `lib/client.js`：新增 `repo/snapshot` 聚合端点（6 项并发探测）、`remote/list`、git 路径 / 仓库根 / 版本 / remote 缓存、`show` 三段并发。
+  - 自检脚本扩展到新端点后，抓出并修掉 `parseStatus` 的 porcelain v2 path 下标 bug（普通变更记录的 path 原本解析成空串）。
 - **未完成 / 阻断**：
-  - 真实 profile 安装失败（跨盘符 `link:` 生成坏 junction → dsh 判定 `declares no dsh.bundle`）；profile 里留有 `"dsh-git-vcs": "link:D:/zxh/code/git-plugin"` 与坏链接，需按 README 清理。
-  - `~/.dsh/profiles/web` 写入需提权，一次 `danger-full-access` 提权被用户拒绝 → 后续安装命令交由用户执行。
-- **修改的关键文件**：`package.json`、`cordis.patch.yml`、`index.js`、`lib/client.js`、`README.md`、`scripts/verify-host.mjs`、`.gitignore`、`.opencode/**`、`LESSONS.md`
-- **Git commit**：
-  - `e964185` feat: 新增 dsh-git-vcs 插件（右侧栏 Git 版本管理页）
-  - 记忆/文档归档：见下一次提交 `chore: 归档 task-001 …`
+  - 真实 profile 安装仍卡在跨盘符坏 junction（`~/.dsh/profiles/web` 写入需提权），修法命令在 README「跨盘符安装坑」。
+- **修改的关键文件**：`index.js`、`lib/client.js`、`scripts/verify-host.mjs`、`README.md`、`LESSONS.md`、`.opencode/tasks/**`
+- **Git commit**：本轮 `feat:` 提交（`3048f64 提交测试` 是用户经插件面板产生的提交）

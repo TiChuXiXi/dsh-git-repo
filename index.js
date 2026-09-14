@@ -156,7 +156,8 @@ function parseStatus(stdout) {
     if (kind === '1' || kind === '2' || kind === 'u') {
       const parts = token.split(' ')
       const xy = parts[1] ?? '..'
-      const pathIndex = kind === 'u' ? 10 : 9
+      // porcelain v2：`1 <XY> …<8 个字段> path`、`2 …<9 个字段> path`、`u …<10 个字段> path`。
+      const pathIndex = kind === 'u' ? 10 : (kind === '2' ? 9 : 8)
       const path = parts.slice(pathIndex).join(' ')
       let origPath = null
       if (kind === '2') {
@@ -186,7 +187,7 @@ function parseStatus(stdout) {
   return { branch, entries }
 }
 
-/** 解析 `--pretty=format:%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%P%x1f%s%x1e` 的输出。 */
+/** 解析 `--pretty=format:LOG_FORMAT` 的输出（末段为提交正文 %b，可能为空）。 */
 function parseCommitList(stdout) {
   const commits = []
   for (const chunk of stdout.split('\x1e')) {
@@ -202,12 +203,85 @@ function parseCommitList(stdout) {
       date: parts[4],
       parents: parts[5] === '' ? [] : parts[5].split(' '),
       subject: parts[6],
+      body: (parts[7] ?? '').trim(),
     })
   }
   return commits
 }
 
-const LOG_FORMAT = '%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%P%x1f%s%x1e'
+const LOG_FORMAT = '%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%P%x1f%s%x1f%b%x1e'
+const BRANCH_FORMAT = '%(refname)%1f%(refname:short)%1f%(objectname:short)%1f%(upstream:short)%1f%(upstream:track,nobracket)%1f%(committerdate:iso-strict)%1f%(subject)'
+const STASH_FORMAT = '%gd%x1f%H%x1f%ad%x1f%s%x1e'
+/** for-each-ref 一次同时取本地与远程分支。 */
+const REF_SCOPES = ['refs/heads', 'refs/remotes']
+
+/** 解析 `for-each-ref --format=BRANCH_FORMAT` 的输出（本地 / 远程分组）。 */
+function parseBranchList(stdout) {
+  const local = []
+  const remote = []
+  for (const line of stdout.split('\n')) {
+    if (line.trim() === '') continue
+    const parts = line.split('\x1f')
+    if (parts.length < 7) continue
+    const ahead = /ahead (\d+)/.exec(parts[4])
+    const behind = /behind (\d+)/.exec(parts[4])
+    const row = {
+      ref: parts[0],
+      name: parts[1],
+      shortHash: parts[2],
+      upstream: parts[3],
+      ahead: ahead === null ? 0 : Number(ahead[1]),
+      behind: behind === null ? 0 : Number(behind[1]),
+      date: parts[5],
+      subject: parts[6],
+      kind: parts[0].startsWith('refs/heads/') ? 'local' : 'remote',
+    }
+    if (row.kind === 'local') local.push(row)
+    else remote.push(row)
+  }
+  return { local, remote }
+}
+
+/** 解析 `stash list --pretty=format:STASH_FORMAT` 的输出。 */
+function parseStashList(stdout) {
+  const stashes = []
+  for (const chunk of stdout.split('\x1e')) {
+    const text = chunk.replace(/^\n+/, '')
+    if (text === '') continue
+    const parts = text.split('\x1f')
+    if (parts.length < 4) continue
+    stashes.push({ ref: parts[0], hash: parts[1], date: parts[2], subject: parts[3] })
+  }
+  return stashes
+}
+
+/** 解析 `git remote -v`：同名远程合并出 fetch / push 两条地址。 */
+function parseRemoteList(stdout) {
+  const byName = new Map()
+  for (const line of stdout.split('\n')) {
+    if (line === '') continue
+    const tab = line.indexOf('\t')
+    if (tab < 0) continue
+    const name = line.slice(0, tab)
+    const rest = line.slice(tab + 1)
+    const at = rest.lastIndexOf(' (')
+    const url = (at < 0 ? rest : rest.slice(0, at)).trim()
+    const kind = at < 0 ? '' : rest.slice(at + 2).replace(')', '').trim()
+    let item = byName.get(name)
+    if (item === undefined) {
+      item = { name, fetch: '', push: '' }
+      byName.set(name, item)
+    }
+    if (kind === 'push') item.push = url
+    else item.fetch = url
+  }
+  return [...byName.values()]
+}
+
+/** 缓存键：Windows 路径大小写不敏感。 */
+function cacheKey(path) {
+  return process.platform === 'win32' ? path.toLowerCase() : path
+}
 
 export function apply(ctx, rawConfig) {
   const config = normalizeConfig(rawConfig)
@@ -225,12 +299,36 @@ export function apply(ctx, rawConfig) {
   /** Console 环形缓冲：每次 git 调用一条。 */
   const commandLog = []
   let resolvedGit = null
+  /** 仓库根缓存：cacheKey(cwd) → rev-parse --show-toplevel 的结果，省掉每次端点的探测进程。 */
+  const rootCache = new Map()
+  /** remote.origin.url 缓存：cacheKey(root) → url。 */
+  const remoteUrlCache = new Map()
+  /** git --version 是进程级常量，只取一次。 */
+  let cachedGitVersion = null
 
   async function resolveGit(signal) {
     if (config.gitPath !== '') return config.gitPath
     if (resolvedGit !== null) return resolvedGit
     resolvedGit = await subprocess.resolveExecutable('git', undefined, signal)
     return resolvedGit
+  }
+
+  /** remote.origin.url（按仓库根缓存一次）。 */
+  async function remoteUrlOf(root, signal) {
+    const key = cacheKey(root)
+    if (remoteUrlCache.has(key)) return remoteUrlCache.get(key)
+    const result = await runGit(['config', '--get', 'remote.origin.url'], { cwd: root, signal })
+    const url = result.exitCode === 0 ? result.stdout.trim() : ''
+    remoteUrlCache.set(key, url)
+    return url
+  }
+
+  /** git 版本（进程级缓存一次）。 */
+  async function gitVersionOf(root, signal) {
+    if (cachedGitVersion !== null) return cachedGitVersion
+    const result = await runGit(['--version'], { cwd: root, signal })
+    cachedGitVersion = result.exitCode === 0 ? result.stdout.trim() : ''
+    return cachedGitVersion
   }
 
   /**
@@ -322,11 +420,17 @@ export function apply(ctx, rawConfig) {
     if (info === undefined || !info.isDirectory()) {
       throw new GitError('git-vcs/bad-request', `工作目录不存在或不是目录：${cwd}`)
     }
+    const key = cacheKey(cwd)
+    const cached = rootCache.get(key)
+    if (cached !== undefined) return { cwd, root: cached }
     const top = await runGit(['rev-parse', '--show-toplevel'], { cwd, signal })
     if (top.exitCode !== 0) {
       throw new GitError('git-vcs/not-a-repo', `不是 git 仓库：${cwd}`, { cwd })
     }
-    return { cwd, root: top.stdout.trim() }
+    const root = top.stdout.trim()
+    rootCache.set(key, root)
+    rootCache.set(cacheKey(root), root)
+    return { cwd, root }
   }
 
   function requireWrite() {
@@ -383,39 +487,84 @@ export function apply(ctx, rawConfig) {
     return parseStatus(result.stdout)
   }
 
+  /** 生效配置：浏览器半区据此决定按钮可用性。 */
+  function configView() {
+    return {
+      allowWrite: config.allowWrite,
+      allowPush: config.allowPush,
+      allowDangerous: config.allowDangerous,
+      diffContextLines: config.diffContextLines,
+      autoRefreshSeconds: config.autoRefreshSeconds,
+    }
+  }
+
   const endpoints = {
-    /** 仓库总览 + 生效配置。 */
+    /** 仓库总览 + 生效配置（分支/领先落后由一次 status 给出，省掉两次 rev-parse）。 */
     async 'repo/info'(payload, signal) {
       const { cwd, root } = await ensureWorkdir(payload?.cwd, signal)
-      const [head, shortHead, status, remote, version] = await Promise.all([
-        runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: root, signal }),
-        runGit(['rev-parse', '--short', 'HEAD'], { cwd: root, signal }),
+      const [status, remoteUrl, gitVersion] = await Promise.all([
         statusOf(root, signal),
-        runGit(['config', '--get', 'remote.origin.url'], { cwd: root, signal }),
-        runGit(['--version'], { cwd: root, signal }),
+        remoteUrlOf(root, signal),
+        gitVersionOf(root, signal),
       ])
-      const branchName = head.exitCode === 0 ? head.stdout.trim() : status.branch.head
+      const branchName = status.branch.head !== '' ? status.branch.head : status.branch.oid
       return {
         repo: {
           cwd,
           root,
           branch: branchName,
           detached: status.branch.detached || branchName === 'HEAD',
-          shortHead: shortHead.exitCode === 0 ? shortHead.stdout.trim() : '',
+          shortHead: status.branch.oid.slice(0, 7),
           oid: status.branch.oid,
           upstream: status.branch.upstream,
           ahead: status.branch.ahead,
           behind: status.branch.behind,
-          remoteUrl: remote.exitCode === 0 ? remote.stdout.trim() : '',
-          gitVersion: version.exitCode === 0 ? version.stdout.trim() : '',
+          remoteUrl,
+          gitVersion,
         },
-        config: {
-          allowWrite: config.allowWrite,
-          allowPush: config.allowPush,
-          allowDangerous: config.allowDangerous,
-          diffContextLines: config.diffContextLines,
-          autoRefreshSeconds: config.autoRefreshSeconds,
+        config: configView(),
+      }
+    },
+
+    /**
+     * 面板首屏聚合端点：repo/info + status + log + branches + stash + console 合成一次往返。
+     * 6 个 git 探测全部并发——单次刷新的进程创建从约 16 次（6 次往返、串行）降到 6 次同波。
+     */
+    async 'repo/snapshot'(payload, signal) {
+      const { cwd, root } = await ensureWorkdir(payload?.cwd, signal)
+      const limit = clampInt(Number.isInteger(payload?.limit) ? payload.limit : 50, 1, 500, 50)
+      const consoleLimit = clampInt(Number.isInteger(payload?.consoleLimit) ? payload.consoleLimit : 60, 1, config.consoleLimit, 60)
+      const [statusResult, logResult, branchResult, stashResult, remoteUrl, gitVersion] = await Promise.all([
+        runGit(['status', '--porcelain=v2', '--branch', '-z'], { cwd: root, signal }),
+        runGit(['log', '--no-color', '--date=iso-strict', `--pretty=format:${LOG_FORMAT}`, '-n', String(limit)], { cwd: root, signal }),
+        runGit(['for-each-ref', `--format=${BRANCH_FORMAT}`, ...REF_SCOPES], { cwd: root, signal }),
+        runGit(['stash', 'list', '--date=iso-strict', `--pretty=format:${STASH_FORMAT}`], { cwd: root, signal }),
+        remoteUrlOf(root, signal),
+        gitVersionOf(root, signal),
+      ])
+      const status = parseStatus(gitOk(statusResult).stdout)
+      const branchName = status.branch.head !== '' ? status.branch.head : status.branch.oid
+      const noCommits = logResult.exitCode !== 0 && logResult.stderr.includes('does not have any commits')
+      return {
+        repo: {
+          cwd,
+          root,
+          branch: branchName,
+          detached: status.branch.detached || branchName === 'HEAD',
+          shortHead: status.branch.oid.slice(0, 7),
+          oid: status.branch.oid,
+          upstream: status.branch.upstream,
+          ahead: status.branch.ahead,
+          behind: status.branch.behind,
+          remoteUrl,
+          gitVersion,
         },
+        config: configView(),
+        status,
+        commits: noCommits ? [] : parseCommitList(logResult.stdout),
+        branches: branchResult.exitCode === 0 ? parseBranchList(branchResult.stdout) : { local: [], remote: [] },
+        stashes: stashResult.exitCode === 0 ? parseStashList(stashResult.stdout) : [],
+        console: commandLog.slice(-consoleLimit).map((entry) => ({ ...entry })),
       }
     },
 
@@ -432,6 +581,9 @@ export function apply(ctx, rawConfig) {
         throw new GitError('git-vcs/bad-request', `目录不存在：${cwd}`)
       }
       const result = gitOk(await runGit(['init'], { cwd, signal }))
+      // 刚初始化出来的仓库：把根写进缓存，省掉后续端点的一次探测。
+      rootCache.set(cacheKey(cwd), cwd)
+      remoteUrlCache.delete(cacheKey(cwd))
       return { root: cwd, message: result.stdout.trim() }
     },
 
@@ -487,52 +639,42 @@ export function apply(ctx, rawConfig) {
       const { root } = await ensureWorkdir(payload?.cwd, signal)
       const rev = readRef(payload, 'rev')
       const filePath = typeof payload?.path === 'string' && payload.path !== '' ? payload.path : null
-      const meta = gitOk(await runGit(['show', '--no-color', '--date=iso-strict', `--pretty=format:${LOG_FORMAT}`, '--no-patch', rev], { cwd: root, signal }))
-      const commits = parseCommitList(meta.stdout)
       const nameArgs = ['show', '--no-color', '--format=', '--name-status', rev]
-      if (filePath !== null) nameArgs.push('--', filePath)
-      const nameStatus = gitOk(await runGit(nameArgs, { cwd: root, signal }))
+      const patchArgs = ['show', '--no-color', '--format=', `-U${config.diffContextLines}`, rev]
+      if (filePath !== null) {
+        nameArgs.push('--', filePath)
+        patchArgs.push('--', filePath)
+      }
+      // 三段探测并发：点一次提交只等一波进程创建。
+      const [meta, nameStatus, patch] = await Promise.all([
+        runGit(['show', '--no-color', '--date=iso-strict', `--pretty=format:${LOG_FORMAT}`, '--no-patch', rev], { cwd: root, signal }),
+        runGit(nameArgs, { cwd: root, signal }),
+        runGit(patchArgs, { cwd: root, signal }),
+      ])
+      const commits = parseCommitList(gitOk(meta).stdout)
       const files = []
-      for (const line of nameStatus.stdout.split('\n')) {
+      for (const line of gitOk(nameStatus).stdout.split('\n')) {
         if (line.trim() === '') continue
         const parts = line.split('\t')
         if (parts.length < 2) continue
         files.push({ status: parts[0], path: parts[parts.length - 1], origPath: parts.length > 2 ? parts[1] : null })
       }
-      const patchArgs = ['show', '--no-color', '--format=', `-U${config.diffContextLines}`, rev]
-      if (filePath !== null) patchArgs.push('--', filePath)
-      const patch = gitOk(await runGit(patchArgs, { cwd: root, signal }))
+      gitOk(patch)
       return { commit: commits[0] ?? null, files, patch: patch.stdout }
     },
 
     /** 本地 + 远程分支。 */
     async branches(payload, signal) {
       const { root } = await ensureWorkdir(payload?.cwd, signal)
-      const format = '%(refname)%1f%(refname:short)%1f%(objectname:short)%1f%(upstream:short)%1f%(upstream:track,nobracket)%1f%(committerdate:iso-strict)%1f%(subject)'
-      const result = gitOk(await runGit(['for-each-ref', `--format=${format}`, 'refs/heads', 'refs/remotes'], { cwd: root, signal }))
-      const local = []
-      const remote = []
-      for (const line of result.stdout.split('\n')) {
-        if (line.trim() === '') continue
-        const parts = line.split('\x1f')
-        if (parts.length < 7) continue
-        const track = /ahead (\d+)/.exec(parts[4])
-        const behind = /behind (\d+)/.exec(parts[4])
-        const row = {
-          ref: parts[0],
-          name: parts[1],
-          shortHash: parts[2],
-          upstream: parts[3],
-          ahead: track === null ? 0 : Number(track[1]),
-          behind: behind === null ? 0 : Number(behind[1]),
-          date: parts[5],
-          subject: parts[6],
-          kind: parts[0].startsWith('refs/heads/') ? 'local' : 'remote',
-        }
-        if (row.kind === 'local') local.push(row)
-        else remote.push(row)
-      }
-      return { local, remote }
+      const result = gitOk(await runGit(['for-each-ref', `--format=${BRANCH_FORMAT}`, ...REF_SCOPES], { cwd: root, signal }))
+      return parseBranchList(result.stdout)
+    },
+
+    /** 远程仓库列表（git remote -v）：同名远程合并 fetch / push 两条地址。 */
+    async 'remote/list'(payload, signal) {
+      const { root } = await ensureWorkdir(payload?.cwd, signal)
+      const result = gitOk(await runGit(['remote', '-v'], { cwd: root, signal }))
+      return { remotes: parseRemoteList(result.stdout), root }
     },
 
     /** 暂存（git add）。 */
@@ -657,16 +799,8 @@ export function apply(ctx, rawConfig) {
       const { root } = await ensureWorkdir(payload?.cwd, signal)
       const action = payload?.action
       if (action === 'list') {
-        const result = gitOk(await runGit(['stash', 'list', '--date=iso-strict', '--pretty=format:%gd%x1f%H%x1f%ad%x1f%s%x1e'], { cwd: root, signal }))
-        const stashes = []
-        for (const chunk of result.stdout.split('\x1e')) {
-          const text = chunk.replace(/^\n+/, '')
-          if (text === '') continue
-          const parts = text.split('\x1f')
-          if (parts.length < 4) continue
-          stashes.push({ ref: parts[0], hash: parts[1], date: parts[2], subject: parts[3] })
-        }
-        return { stashes }
+        const result = gitOk(await runGit(['stash', 'list', '--date=iso-strict', `--pretty=format:${STASH_FORMAT}`], { cwd: root, signal }))
+        return { stashes: parseStashList(result.stdout) }
       }
       requireWrite()
       if (action === 'push') {

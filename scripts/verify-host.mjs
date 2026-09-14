@@ -107,11 +107,29 @@ async function check(label, endpoint, payload, inspect) {
 }
 
 const cwd = REPO
+/** git 输出的路径分隔符是正斜杠，比较前统一。 */
+const samePath = (left, right) => left.replace(/\\/g, '/').toLowerCase() === right.replace(/\\/g, '/').toLowerCase()
 
 await check('repo/info', 'repo/info', { cwd }, (value) => {
-  if (value.repo.root.toLowerCase() !== REPO.toLowerCase()) return `root=${value.repo.root}`
+  if (!samePath(value.repo.root, REPO)) return `root=${value.repo.root}`
   if (value.repo.branch !== 'main') return `branch=${value.repo.branch}`
   if (value.config.allowPush !== false) return 'allowPush 未透传'
+  return undefined
+})
+
+await check('repo/snapshot 聚合', 'repo/snapshot', { cwd, limit: 5 }, (value) => {
+  if (value.repo === null || typeof value.repo !== 'object') return 'repo 缺失'
+  if (!samePath(value.repo.root, REPO)) return `root=${value.repo.root}`
+  if (!Array.isArray(value.commits) || value.commits.length === 0) return 'commits 为空'
+  if (value.branches === null || !Array.isArray(value.branches.local)) return 'branches 缺失'
+  if (!Array.isArray(value.stashes)) return 'stashes 不是数组'
+  if (!Array.isArray(value.console) || value.console.length === 0) return 'console 为空'
+  const bad = value.status.entries.find((entry) => typeof entry.path !== 'string' || entry.path === '')
+  return bad === undefined ? undefined : `条目 path 异常：${JSON.stringify(bad)}`
+})
+
+await check('remote/list', 'remote/list', { cwd }, (value) => {
+  if (!Array.isArray(value.remotes)) return 'remotes 不是数组'
   return undefined
 })
 
@@ -150,7 +168,7 @@ await check('console/list', 'console/list', {}, (value) => {
   return bad === undefined ? undefined : 'argv 缺失'
 })
 
-await check('未知端点报错', 'nope/nope', {}, undefined)
+// 未知端点：必须返回 git-vcs/unknown-endpoint 信封（不抛）。
 const unknown = await handler('nope/nope', {}, new AbortController().signal)
 if (unknown.ok !== false || unknown.error.code !== 'git-vcs/unknown-endpoint') {
   results.push('FAIL 未知端点未返回 git-vcs/unknown-endpoint')

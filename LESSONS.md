@@ -20,7 +20,8 @@
 
 | 日期 | 错误做法 ❌ | 正确做法 ✅ | 原因 / 后果 | 关联文件/模块 |
 |------|------------|------------|-------------|---------------|
-| _(待填充)_ | - | - | - | - |
+| 2026-09-14 | 只用 `cordis_inspect_query` 去确认某个客户端服务（如 `sidebarRightTabs`）的签名 | 客户端 Service 目录是**静态子集**，不在目录里的真实服务（`ctx.reflect.provide` 提供的）一查就让 Tool **永久挂起**；这类服务直接 `ctx.get('name')` + undefined 检查，签名照抄产品内活实现 | 宿主 `dsh-cordis-host-runner/lib/types/inspect-registry.js` 的 `resolveClientQuery` 只接受 `ok:true`，provider 报错（`no catalogued Service named "x"`）时既不 settle 也不清理 pending，只能等调用被取消 | `cordis_inspect_query`、`lib/client.js` |
+| 2026-09-14 | 客户端 tab 标题用带 `flex-wrap: wrap` 的 flex 容器包图标 + 文本 | 照抄官方 `FilesTitle`：`Fragment(图标, 文本)`，自定义容器必须 `display:inline-flex` + `white-space:nowrap` + `min-width` | chip 一窄就折行并被固定行高裁掉，表现为「tab 标题显示不下」 | `lib/client.js`（GitTitle） |
 
 ### Cordis/服务注入 规范
 
@@ -36,7 +37,7 @@
 
 | 日期 | 错误做法 ❌ | 正确做法 ✅ | 原因 / 后果 | 关联文件/模块 |
 |------|------------|------------|-------------|---------------|
-| _(待填充)_ | - | - | - | - |
+| 2026-09-14 | 解析 `git status --porcelain=v2` 时对 `1 ` / `2 ` / `u ` 三种记录共用同一个 path 字段下标 | 下标按记录类型分开：`1 ` → 8、`2 ` → 9（多一个 Xscore）、`u ` → 10 | 普通变更记录的 `path` 解析成空串，UI 里表现为文件名空白、按路径操作全失效；`verify-host.mjs` 的 `status 解析` 断言能抓到 | `index.js`（parseStatus） |
 
 ### Git/协作 规范
 
@@ -53,6 +54,10 @@
 | 日期 | 错误做法 ❌ | 正确做法 ✅ | 原因 / 后果 | 关联文件/模块 |
 |------|------------|------------|-------------|---------------|
 | 2026-09-14 | 用户说"入口/面板要和官方某功能一样"时，只对齐**功能面**，自己另选一套机制（用 `sidebar.panellist` + `main` 全局面板做入口） | 先找到产品内该功能的**活实现**并照抄它的注册路径（本例：`dsh-client-ui-sidebar-files` 的两阶段 `sidebarRightTabs.register` + `sidebar.right.pane.tab` keyed 注册） | 机制选错要重做整个注册层与 UI 布局假设；而分栏 / 全屏 / 拖出浮窗这些能力本来可以白拿 | `lib/client.js`、`.opencode/tasks/task-001/context.md` |
+| 2026-09-14 | 用动态 Cordis 插件连续迭代了 4 版（`pkg-1`…`pkg-4`）却没说明载体，用户以为在改插件源码，问"为什么工作区看不到你的修改、commit 也没有新的" | 动态 Package 的代码只存在于 DSH 进程内（`cordis_define` 的字面量），**不写盘、不进 git**；每轮迭代后要明确说"这改的是动态插件还是源文件"，验收通过后主动把改动同步回 `index.js` / `lib/client.js` 并提交 | 交付物与用户预期错位：动态版功能最新，磁盘上的插件还是旧形态，装上真插件会看到旧 UI | `index.js`、`lib/client.js`、`.opencode/tasks/task-001/progress.md` |
+| 2026-09-14 | 表格行 `<tr>` 上挂 `display:flex` 的行样式复用 | `tr` 保持 table-row 显示类型，行级交互用 `:hover td` / 选中类，列宽用 `<colgroup>` + `table-layout:fixed` | CSS 表格修复规则会把整个 flex 行包进一个匿名单元格 → 所有内容挤进第一列、其余列全空 | `lib/client.js`（Log 表） |
+| 2026-09-14 | 把「加载中」写进同一条件表达式：`!loading && data === null ? null : render(data)` | 先判数据：`data === null ? 占位 : render(data)`，把 detail 渲染抽成函数做空值兜底 | loading 为 true 时走 else 分支，直接对 null 解属性 → 点击即崩（`Cannot read properties of null`） | `lib/client.js`（renderLogDetail / renderCommitBody） |
+| 2026-09-14 | 长耗时操作只给一个布尔 busy（页脚一行"执行中…"） | 每个阶段都要可见：顶部进度条 + 页脚阶段文案（读取仓库 / 暂存中 / 提交中 / 刷新列表）+ 分区占位（读取差异 / 读取提交详情）+ 状态栏真实耗时回显 | git 进程创建在 Windows 上是几十到上百毫秒级，串行十几次就是 1–2s 白屏；用户感知为"一直卡顿"而不是"在加载" | `lib/client.js`、`index.js`（repo/snapshot 并发 + 缓存） |
 
 ### 工具链/构建与环境 规范
 

@@ -172,3 +172,26 @@
 - `~/.dsh/profiles/web` 写入需提权，本会话一次 `danger-full-access` 提权被用户拒绝 → 停止尝试，改由用户自行执行 README 里的命令。
 - 真机 UI 未验证（需重启 `dsh web` 后刷新页面看侧边栏引导页胶囊与面板）。
 - `scripts/verify-host.mjs` 已写好但**未运行**（用户要求先不急着验证）。
+
+## 实现进展（2026-09-14 · 第二轮：动态验证 + 回灌源码）
+
+先以动态 Cordis 插件（`gitvc-1`，`pkg-1`…`pkg-4`）在当前页面热加载同一套机制的移植版，验证右侧栏 tab 与
+host git 通路，再按用户确认「全部同步」把结论回灌到本包源码：
+
+| 变化 | 位置 | 说明 |
+|------|------|------|
+| `repo/snapshot` 聚合端点 | `index.js` | status / log / for-each-ref(本地+远程合并) / stash / 版本 / remote 六项 `Promise.all` 并发，一次往返；面板刷新与写操作后刷新都只用它 |
+| 缓存 | `index.js` | git 可执行路径、仓库根（`rev-parse --show-toplevel`，按 cwd 缓存，`init` 回写）、`git --version`、`remote.origin.url` |
+| `remote/list` 端点 | `index.js` | `git remote -v` 解析成 `{name, fetch, push}`，供 Remotes 页 |
+| `show` 三段并发 | `index.js` | meta / name-status / patch 由串行改并发 |
+| `parseStatus` 修 bug | `index.js` | porcelain v2 的 path 下标：`1 ` → 8、`2 ` → 9、`u ` → 10（原实现统一 9 → path 空串） |
+| 详情默认隐藏 + 可关闭 | `lib/client.js` | 文件差异与提交详情都不常驻，点选才展开，右上角 `×` 关闭；再点同一行可收起 |
+| Log 连线列 | `lib/client.js` | 首列表头留空，单轨竖线 + 节点（HEAD 实心，首行线只向下 / 末行只向上），行间无分割线；列宽用 `<colgroup>` + `table-layout:fixed` 对齐 |
+| 按提交建分支 | `lib/client.js` | 提交详情内输入分支名 → `branch/create` + `startPoint`（只建不切换） |
+| Remotes 页 | `lib/client.js` | 懒加载（切到该页才请求），展示每个远程的 fetch / push 地址 |
+| tab 标题不裁 | `lib/client.js` | 注册 `sidebar.right.pane.tab.title`，`inline-flex` + `nowrap` + `min-width:78px` |
+| 分阶段反馈 | `lib/client.js` | 顶部进度条 + 页脚阶段文案 + 分区占位（读取差异 / 读取提交详情 / 读取远程）+ 状态栏 `上次操作 N ms` |
+
+验证：`node --check` 全过、`validate-plugin.mjs` 0 ERROR / 0 WARN、`smoke-boot.mjs` 通过、
+`scripts/verify-host.mjs` **13 通过 / 0 失败**（新增 snapshot 与 remote/list 断言）。
+
