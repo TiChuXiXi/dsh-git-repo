@@ -96,3 +96,20 @@
   - 动态通道返回值要过 host-runner 的 `cloneJson` 无损检查，桥上加自查并把坏值换成带端点名的干净错误码。
 - **验证**：`node --check` 两半区通过；`validate-plugin.mjs` 0 ERROR / 0 WARN；`verify-host.mjs` 23/23；`preview-check.mjs` 全通过。
 - **Git commit**：本轮提交（Log 改版）。
+
+### 2026-09-15（Log 视觉修正：空心圆点 + 分支配色 + 无缝连线；提示改为浮动 toast）
+
+- **用户反馈**：① 提交树连线效果不好——要求圆点在本行中间、空心（同色系深色圆环）、连线用同色系浅色、
+  从正中贯穿圆点但**圆点内不画线**、上下行之间**不能有空隙**、不同分支用不同颜色（原实现是实心圆 + 固定蓝 + 写死 13px 端点）；
+  ② 复制提示会导致布局高度变化两次 → 视觉抖动，要求改用弹窗类提示。
+- **完成**：
+  - `lib/client.js`：新增 `GRAPH_COLORS`（8 组 ring/line/fill 同色系）、`NODE_RADIUS`；
+    `GraphCell` 改为「上下两段连线 + 居中空心圆」——`up = top:-1px / height:calc(50% - 4px)`、
+    `down = top:calc(50% + 5px) / bottom:-1px`（各越界 1px 与相邻行重叠，消除小数行高的接缝），
+    圆点 `top: 50%` + `marginTop: -5px`（行内居中），HEAD 只把圆环加粗到 3px；
+    提交树单元格放开 `overflow`、由标签容器自己裁剪，保证越界生效且长标签不溢到 Message 列。
+  - 颜色：`logColorByName`（分支名排序取模）+ `logColorOf`（本行标签优先，无标签从子提交沿父提交继承）；
+    标签同时带上自己分支的 ring/fill（本地实线、远程虚线、HEAD 加粗）。
+  - 提示：`S.notice/S.noticeBad` → `S.toast/S.toastBad`（`position:absolute` 右下角 + 根节点 `position:relative`
+    + `pointerEvents:none`），复制与写操作耗时提示都不再参与流式布局。
+- **验证**：`node --check` 通过；`verify-host.mjs` 23/23；`preview-check.mjs` 全通过；动态预览 `gitvcs-3/pkg-9` 已重启（run-11）加载最新源码。
