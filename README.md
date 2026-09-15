@@ -121,7 +121,9 @@ node scripts\verify-host.mjs D:\zxh\code\git-plugin
     以及变更文件列表——**默认不展示任何文件的差异**，文件行有 hover 高亮、光标 `pointer`，
     **点某个文件才按需拉取该文件的 diff**（`show/file` 端点），再点一次收起；
     点提交时只取元数据与文件列表（`show` + `noPatch`），不再一次性传输整次提交的 patch。
-- **Branches**：本地 / 远程分支（当前分支高亮）。远程分支列表会**过滤符号引用**——`refs/remotes/origin/HEAD`
+- **Branches**：本地 / 远程分支。当前分支用首列 `*` + 绿色加粗分支名标识（**不做"选中"背景高亮**——
+  这里没有选中态），行只在 hover 时变色、光标为默认箭头（操作都在行内按钮上，行本身不可点）。
+  远程分支列表会**过滤符号引用**——`refs/remotes/origin/HEAD`
   的 `%(refname:short)` 会退化成 `origin`，不过滤就会和真正的 `origin/main` 一起显示成两条。每行操作：
   本地分支 **推送**（有 upstream 时 `git push <remote> <branch>`；没有 upstream 时按钮变成「推送并设 upstream」，
   走 `git push --set-upstream <remote> <branch>`，`remote` 取自该分支的 upstream，缺省 `origin`）、切换、合并、删除，

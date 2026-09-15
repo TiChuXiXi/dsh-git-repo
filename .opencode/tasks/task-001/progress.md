@@ -211,3 +211,9 @@
 - **① 的实现**：提交右键菜单删掉「远程」分组；Branches 页本地分支行加「推送」按钮（无 upstream 时变「推送并设 upstream」→ `--set-upstream <remote> <branch>`，remote 取自该分支 upstream，缺省 origin），与工具栏同一道 allowPush 门禁；页内加了一行说明。
 - **顺带修 host 的 push 参数 bug**：原来 `push {branch}` 拼成 `git push <branch>`（git 会把分支名当仓库名）；现在强制 `git push <remote> <branch>`，并新增 `readRemoteArg` 校验（拒绝空/空白/NUL/以 - 开头）。
 - **验证**：`verify-host.mjs` 新增 4 条断言（push 带 remote、--set-upstream 带 remote+分支、非法 remote 被拒、branches 过滤 origin/HEAD）→ **34 通过 / 0 失败**；预览 `gitvcs-3/pkg-9` 已重启（run-20）。
+
+### 2026-09-15（Branches 页：去掉选中态、补 hover）
+
+- **用户反馈**：本地 main 一直高亮选中；远程分支没有 hover 也不可点；分支模块不需要选中效果，只留 hover。
+- **改动**：`renderBranches` 不再用 `S.rowOn`（那是 Local Changes / Log 的真实选中态），当前分支改为行首 `*` + 绿色加粗分支名；新增 `hoverBranch` 状态给所有分支行做 hover 背景；行样式 `cursor: default`（操作都在行内按钮）。
+- **验证**：`node --check` 通过；`verify-host.mjs` 34/34；预览 `gitvcs-3/pkg-9` 已重启（run-21）。
