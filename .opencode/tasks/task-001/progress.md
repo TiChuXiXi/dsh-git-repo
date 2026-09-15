@@ -333,3 +333,20 @@
 - **顺带收尾**：`allowPush` 默认值与 `cordis.patch.yml` 均改为 `true`（此前已改，本轮补记决策）。
 - **验证**：`node --check`（index.js / lib/client.js）通过；`verify-host.mjs` **45 通过 / 0 失败**
   （新增 2 条）；`preview-check.mjs` 全部通过。
+
+### 2026-09-15（真机验收通过 + README 按"版本/兼容性/说明/用法"重写）
+
+- **真机验收**：用户重启 `dsh web` 后，面板的勾选提交与推送**都跑通了** —— 用面板本身提交了两次
+  `提交测试`（`64d949b` / `70a81d3`，含一个空的 `提交测试.txt`）并推送成功（`main...origin/main` 已同步）。
+- **README 重写**（用户要求：说明插件版本、支持的 DSH 版本、插件说明、使用方法）：
+  新结构 = 版本与兼容性表（插件 `0.1.0` / DSH `≥ 0.1.5-rc.1`，开发与验证版本即该版 /
+  官方插件 `@deepseek-ai/dsh-client-ui-sidebar-right` / host 三服务 / client 能力 / git / Node / 零构建）
+  → 插件说明（提供什么、形态与文件、作用范围、**29 个 RPC 端点表含门禁**）→ 安装（本地路径、改完怎么生效、
+  跨盘符坏 junction 坑）→ 使用方法（工具栏 + 六页逐页 + 反馈与状态 + 性能约定）→ 推送与认证 →
+  配置 → 安全边界 → 已知限制 → 自检与排障 → 卸载 → RPC 通道（维护者向）。
+- **纠错**：原文"dsh 0.9.0 实测"是错的 —— 实际 `dsh --version` 与 `package.json` 都是 **`0.1.5-rc.1`**
+  （`@deepseek-ai/dsh-client-ui-sidebar-right` 为 `0.1.5-rc.2`，`dockkit`/`slots`/`primitives` 等只是
+  其 devDependencies，安装目录里没有独立包，故不再点名 dockkit）；另补齐被漏写的 `remote/add` 端点、
+  端点总数（29）、`init` 无 UI 入口这条限制。
+- **顺带**：`index.js` 文件头注释同步为"自注册 `webServer` 前缀路由"，并补上"行级 inject 也要写"的说明。
+- **验证**：`node --check index.js`、`verify-host.mjs`（45/45）、`preview-check.mjs`（全部通过）复跑仍绿。

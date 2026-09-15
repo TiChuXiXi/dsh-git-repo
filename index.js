@@ -3,11 +3,12 @@
  *
  * 职责：
  *   1. 用 `ctx.subprocess` 以 **argv 形式**（不经 shell）执行 git，输出集中收集；
- *   2. 把结果经 `ctx.connection.rpc.handle('/git-vcs', ...)` 暴露给浏览器半区；
+ *   2. 自己注册 `ctx.webServer` 的 `/git-vcs` 前缀路由（线格式同 Connection RPC，
+ *      信任栅栏复用 `ctx.connection.requestRejection`），把端点暴露给浏览器半区；
  *   3. 读插件行的 config 做写操作门禁（allowWrite / allowPush / allowDangerous）。
  *
- * 依赖策略：不 import 任何 @deepseek-ai/* 运行时值，`subprocess` / `connection` 都用
- * `ctx.get()` 软依赖——任一服务缺席只降级并记录，不让插件停在 pending（也免去 profile 侧装依赖）。
+ * 依赖策略：不 import 任何 @deepseek-ai/* 运行时值，所需服务全部走 `export const inject` 声明 +
+ * `ctx.get()` 读取——任一服务缺席即停在 pending（而不是带着 undefined 空转）。
  */
 
 import { stat } from 'node:fs/promises'
@@ -16,18 +17,18 @@ import { isAbsolute, relative, resolve as resolvePath } from 'node:path'
 export const name = 'git-vcs'
 
 /**
- * 硬依赖：这两个服务是插件存在的全部意义（没有它们就只能空转）。
+ * 硬依赖：这三个服务缺一不可（没有 subprocess 跑不了 git，没有 connection 过不了信任栅栏，
+ * 没有 webServer 挂不上路由）。
  *
  * 为什么必须是 `inject` 而不是 `inject: []` + `ctx.get()`：
  * loader 按组合顺序挂载行，我们的行排在 base / web-app 之后，但**一次性**在 apply() 里
- * `ctx.get('subprocess')` 会读到 undefined —— 提供方那两行还没就绪（真机日志：
+ * `ctx.get('subprocess')` 会读到 undefined —— 提供方那些行还没就绪（真机日志：
  * `host 半区激活：subprocess=缺席 connection=缺席` → RPC 通道没注册 → 浏览器侧 405）。
- * 声明成 inject 后 cordis 会等这两个服务就绪再激活本插件（缺席则停在 pending，语义正确）。
+ * 声明成 inject 后 cordis 会等服务就绪再激活本插件（缺席则停在 pending，语义正确）。
  * 客户端半区一直声明着 inject，所以它没这个问题 —— 这也是当初定位的关键线索。
  *
- * `webServer` 也必须声明：`connection.rpc.handle(channel, handler)` 内部是把路由注册到
- * **读取该服务的那个 ctx**（也就是本插件的 ctx）的 `ctx.webServer` 上；不声明就会报
- * `cannot get property "webServer" without inject`，整棵插件树加载失败。
+ * 行级 inject 也要写（`cordis.patch.yml` 的 `inject:`）：loader 是按**行**激活的，
+ * 模块 `export const inject` 管不到行那一层。
  */
 export const inject = ['subprocess', 'connection', 'webServer']
 
