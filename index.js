@@ -104,6 +104,8 @@ function classify(exitCode, stderr, aborted) {
   const text = stderr.toLowerCase()
   if (text.includes('not a git repository')) return 'git-vcs/not-a-repo'
   if (text.includes('could not resolve host') || text.includes('failed to connect') || text.includes('network is unreachable')) return 'git-vcs/network'
+  // 认证缺失 / 被拒：客户端据此弹认证表单（用户名 + 密码或 Token），存进 git 凭据后重推。
+  if (AUTH_HINTS.some((hint) => text.includes(hint))) return 'git-vcs/auth-required'
   if (text.includes('automatic merge failed') || text.includes('fix conflicts')) return 'git-vcs/conflict'
   if (text.includes('nothing to commit') || text.includes('no changes added to commit')) return 'git-vcs/nothing-to-commit'
   if (text.includes('non-fast-forward') || text.includes('failed to push some refs') || text.includes('rejected')) return 'git-vcs/push-rejected'
@@ -111,6 +113,52 @@ function classify(exitCode, stderr, aborted) {
   if (text.includes('your local changes') || text.includes('would be overwritten')) return 'git-vcs/dirty-worktree'
   if (exitCode === 128) return 'git-vcs/git-failed'
   return 'git-vcs/git-failed'
+}
+
+/** 需要认证的特征串（都取小写）。`could not read Username` = 想弹窗但被 GIT_TERMINAL_PROMPT=0 拦住。 */
+const AUTH_HINTS = [
+  'could not read username',
+  'could not read password',
+  'terminal prompts disabled',
+  'authentication failed',
+  'invalid username or password',
+  'support for password authentication was removed',
+  'permission denied (publickey)',
+  '403 forbidden',
+  'remote: invalid credentials',
+]
+
+/** schannel / 证书上下文拿不到凭据：换 openssl 后端重试通常就好了（不是缺认证信息）。 */
+function isSslBackendFailure(stderr) {
+  const text = String(stderr).toLowerCase()
+  return text.includes('sec_e_no_credentials')
+    || text.includes('acquirecredentialshandle')
+    || text.includes('schannel:')
+}
+
+/** 把 argv / 文本里的 `scheme://user:secret@host` 脱敏：Console 流水与错误详情里不能出现密码。 */
+function redactText(value) {
+  return String(value).replace(/([a-z][a-z0-9+.-]*:\/\/)[^/@\s]+@/gi, '$1***@')
+}
+
+function redactArgv(argv) {
+  return Array.isArray(argv) ? argv.map((item) => redactText(item)) : argv
+}
+
+/**
+ * 拆 http(s) 远程 URL：拿 protocol / host / path / 内嵌 username。
+ * 只支持 http(s)（SSH 走密钥，插件不做认证）；返回 null 表示不适合走凭据流程。
+ */
+function parseRemoteUrl(raw) {
+  const text = String(raw).trim()
+  const match = /^(https?):\/\/(?:([^/@\s]*)@)?([^/\s:]+(?::\d+)?)(\/[^\s]*)?$/i.exec(text)
+  if (match === null) return null
+  return {
+    protocol: match[1].toLowerCase(),
+    username: match[2] === undefined ? '' : decodeURIComponent(match[2]),
+    host: match[3],
+    path: (match[4] ?? '').replace(/^\//, ''),
+  }
 }
 
 /** 读一条 collect 模式输出（进程退出后仍可读）。 */
@@ -325,6 +373,8 @@ export function apply(ctx, rawConfig) {
   const remoteUrlCache = new Map()
   /** git --version 是进程级常量，只取一次。 */
   let cachedGitVersion = null
+  /** 本会话内存里的远程凭据：host → { username, secret }。凭据助手不可用时的兜底，进程结束即消失。 */
+  const sessionCredentials = new Map()
 
   async function resolveGit(signal) {
     if (config.gitPath !== '') return config.gitPath
@@ -353,18 +403,22 @@ export function apply(ctx, rawConfig) {
 
   /**
    * 执行一次 git。永不因非零退出 throw（由调用方用 gitOk 判定），只有 spawn 失败/超时 throw。
+   * `stdin` 可传字符串（凭据走 stdin，不进 argv，Console 流水里就不会留下密码）；
+   * `config` 是 `-c key=value` 列表，必须排在子命令之前。
    * @returns {{argv: string[], exitCode: number|null, stdout: string, stderr: string, durationMs: number, aborted: boolean}}
    */
-  async function runGit(args, { cwd, signal }) {
+  async function runGit(args, { cwd, signal, stdin, config: extraConfig, sensitive }) {
     const executable = await resolveGit(signal)
     const timeout = AbortSignal.timeout(config.timeoutMs)
     const bound = signal === undefined ? timeout : AbortSignal.any([signal, timeout])
     const startedAt = Date.now()
+    const configArgs = []
+    for (const entry of extraConfig ?? []) configArgs.push('-c', entry)
     const handle = subprocess.spawn({
-      argv: [executable, ...GIT_COMMON, ...args],
+      argv: [executable, ...GIT_COMMON, ...configArgs, ...args],
       cwd,
       stdio: {
-        stdin: 'ignore',
+        stdin: typeof stdin === 'string' ? { data: stdin } : 'ignore',
         stdout: { maxBytes: config.maxOutputBytes },
         stderr: { maxBytes: config.maxOutputBytes },
       },
@@ -377,7 +431,7 @@ export function apply(ctx, rawConfig) {
       outcome = await handle.done
     } catch (cause) {
       throw new GitError('git-vcs/spawn-failed', `无法启动 git：${cause instanceof Error ? cause.message : String(cause)}`, {
-        argv: ['git', ...args],
+        argv: redactArgv(['git', ...args]),
       })
     }
     const stdout = readCollected(handle.collected.stdout)
@@ -385,11 +439,12 @@ export function apply(ctx, rawConfig) {
     const durationMs = Date.now() - startedAt
     const record = {
       at: startedAt,
-      argv: ['git', ...args],
+      // 敏感调用（凭据 approve/fill、内嵌凭据的推送）不进流水：argv 脱敏、输出隐藏。
+      argv: redactArgv(['git', ...args]),
       exitCode: outcome.exitCode,
       durationMs,
-      stdout: stdout.text,
-      stderr: stderr.text,
+      stdout: sensitive === true ? '（凭据相关命令，输出已隐藏）' : stdout.text,
+      stderr: sensitive === true ? '' : stderr.text,
       truncated: stdout.truncated || stderr.truncated,
       timeout: timeout.aborted,
     }
@@ -410,13 +465,87 @@ export function apply(ctx, rawConfig) {
   /** 非零退出即抛 GitError（按 stderr 归类）。 */
   function gitOk(result, { allowExit = [0] } = {}) {
     if (result.exitCode !== null && allowExit.includes(result.exitCode)) return result
-    const stderr = result.stderr.trim()
-    const stdout = result.stdout.trim()
+    const stderr = redactText(result.stderr.trim())
+    const stdout = redactText(result.stdout.trim())
     throw new GitError(
       result.timedOut ? 'git-vcs/timeout' : classify(result.exitCode, stderr, result.aborted),
       stderr !== '' ? stderr : (stdout !== '' ? stdout : `git 退出码 ${result.exitCode}`),
-      { argv: result.argv, exitCode: result.exitCode },
+      { argv: redactArgv(result.argv), exitCode: result.exitCode },
     )
+  }
+
+  /** 凭据查询块（git credential 的 stdin 协议）：不传 path，存成主机级，符合"认证一次后续都顺畅"。 */
+  function credentialBlock(target, { username, secret }) {
+    const lines = [`protocol=${target.protocol}`, `host=${target.host}`]
+    if (typeof username === 'string' && username !== '') lines.push(`username=${username}`)
+    if (typeof secret === 'string') lines.push(`password=${secret}`)
+    return `${lines.join('\n')}\n`
+  }
+
+  /**
+   * 把认证信息交给 git 的凭据助手保存（store → `~/.git-credentials`，manager → 系统凭据库）。
+   *
+   * 密码只走 stdin（不进 argv、不进 Console 流水）；保存后用 `git credential fill` 回读校验，
+   * 因为 `git credential approve` 即使没人接收也返回 0（助手缺失时是静默失败）。
+   * 同时把凭据记在本进程内存里，供本次会话内"助手不可用时直接内嵌凭据推送"兜底。
+   */
+  async function approveCredential(root, url, username, secret, signal) {
+    const target = parseRemoteUrl(url)
+    if (target === null) {
+      throw new GitError('git-vcs/bad-request', `只有 http(s) 远程需要账号密码：${url}`)
+    }
+    const approve = await runGit(['credential', 'approve'], {
+      cwd: root,
+      signal,
+      stdin: credentialBlock(target, { username, secret }),
+      sensitive: true,
+    })
+    gitOk(approve)
+    sessionCredentials.set(target.host, { username, secret })
+    // 回读校验：助手没保存成功时 fill 会读不到（或返回空）。
+    const fill = await runGit(['credential', 'fill'], {
+      cwd: root,
+      signal,
+      stdin: `${`protocol=${target.protocol}\nhost=${target.host}\n`}`,
+      sensitive: true,
+    })
+    const stored = fill.exitCode === 0 && fill.stdout.includes('password=') && fill.stdout.includes(`username=${username}`)
+    return { host: target.host, username, stored }
+  }
+
+  /** 内嵌凭据的推送 URL（仅在助手不可用时兜底；argv 会在流水里脱敏）。 */
+  function credentialUrl(url, credential) {
+    const target = parseRemoteUrl(url)
+    if (target === null) return null
+    const user = encodeURIComponent(credential.username)
+    const pass = encodeURIComponent(credential.secret)
+    return `${target.protocol}://${user}:${pass}@${target.host}/${target.path}`
+  }
+
+  /**
+   * 这次推送到底打到哪个远程：显式 remote 名 → 当前分支配置的 branch.<name>.remote → origin。
+   * @returns {{name: string, url: string, host: string} | null}
+   */
+  async function resolvePushTarget(root, remoteName, signal) {
+    const candidates = []
+    if (typeof remoteName === 'string' && remoteName !== '') candidates.push(remoteName)
+    const head = await runGit(['rev-parse', '--abbrev-ref', 'HEAD'], { cwd: root, signal })
+    const branchName = head.exitCode === 0 ? head.stdout.trim() : ''
+    if (branchName !== '' && branchName !== 'HEAD') {
+      const configured = await runGit(['config', '--get', `branch.${branchName}.remote`], { cwd: root, signal })
+      const name = configured.exitCode === 0 ? configured.stdout.trim() : ''
+      if (name !== '') candidates.push(name)
+    }
+    candidates.push('origin')
+    for (const name of candidates) {
+      const result = await runGit(['remote', 'get-url', name], { cwd: root, signal })
+      const url = result.exitCode === 0 ? result.stdout.trim() : ''
+      if (url === '') continue
+      const target = parseRemoteUrl(url)
+      if (target === null) return null
+      return { name, url, host: target.host }
+    }
+    return null
   }
 
   /** 解析并校验 cwd：绝对路径、存在、是目录、在 repoRoot 之下、确为 git 工作树。 */
@@ -775,7 +904,11 @@ export function apply(ctx, rawConfig) {
       return { remotes: parseRemoteList(result.stdout), root }
     },
 
-    /** 添加远程仓库：name + url；push 与 fetch 不同时再走 `remote set-url --push`。 */
+    /**
+     * 添加远程仓库：name + url；push 与 fetch 不同时再走 `remote set-url --push`。
+     * 可选带上 `username` / `secret`：添加时就把认证信息交给 git 凭据助手存起来（IDEA 的"添加时认证"），
+     * 之后 push 不用再填。
+     */
     async 'remote/add'(payload, signal) {
       requireWrite()
       const { root } = await ensureWorkdir(payload?.cwd, signal)
@@ -793,7 +926,16 @@ export function apply(ctx, rawConfig) {
       }
       // 失效缓存：repo/info 与 remote/list 各自缓存了 remote.origin.url 等。
       remoteUrlCache.delete(cacheKey(root))
-      return { name, url, push: push ?? url }
+      // 带了认证信息就顺手存进凭据助手（失败也只警告，不影响 remote 已加好的事实）。
+      let credential = null
+      if (typeof payload?.username === 'string' && payload.username !== '' && typeof payload?.secret === 'string' && payload.secret !== '') {
+        try {
+          credential = await approveCredential(root, url, payload.username, payload.secret, signal)
+        } catch (cause) {
+          console.warn(`[dsh-git-vcs] 保存远程凭据失败：${cause instanceof Error ? cause.message : String(cause)}`)
+        }
+      }
+      return { name, url, push: push ?? url, credential }
     },
 
     /** 删除远程仓库：先 `get-url` 校验存在，再 `remote remove`。 */
@@ -916,9 +1058,35 @@ export function apply(ctx, rawConfig) {
       return { stdout: result.stdout, stderr: result.stderr }
     },
 
+    /**
+     * 保存远程认证信息（用户名 + 密码/Token）到 git 凭据助手，并记进本会话内存。
+     * 客户端在"推送失败提示需要认证"或"添加远程时填了账号"时调用；密码只走 stdin。
+     */
+    async 'credential/approve'(payload, signal) {
+      requireWrite()
+      const { root } = await ensureWorkdir(payload?.cwd, signal)
+      const url = readUrl(payload, 'url')
+      const username = typeof payload?.username === 'string' ? payload.username.trim() : ''
+      if (username === '') throw new GitError('git-vcs/bad-request', 'username 不能为空')
+      const secret = typeof payload?.secret === 'string' ? payload.secret : ''
+      if (secret === '') throw new GitError('git-vcs/bad-request', 'secret（密码或 Token）不能为空')
+      return await approveCredential(root, url, username, secret, signal)
+    },
+
+    /**
+     * 推送。流程对齐 IDEA：
+     *   1. 先按当前配置直接推（仓库通常已经配好 remote 与凭据助手）；
+     *   2. 若失败原因是 schannel 拿不到凭据上下文 → 换 openssl 后端自动重试一次（第一次没改动远端，重试安全）；
+     *   3. 若失败原因是缺认证信息 → 回 `git-vcs/auth-required`，客户端弹认证表单，
+     *      填完走 `credential/approve` 存进 git 全局凭据后再推（第二次调用本端点）；
+     *   4. 其余（网络不通、被拒、无权限等）原样回错误码与 stderr，不在插件里猜。
+     */
     async push(payload, signal) {
       requirePush()
       const { root } = await ensureWorkdir(payload?.cwd, signal)
+      // 允许调用方显式指定 SSL 后端（配置项之外的临时覆盖）。
+      const backend = typeof payload?.sslBackend === 'string' && payload.sslBackend !== '' ? payload.sslBackend : null
+      const config = backend === null ? [] : [`http.sslBackend=${backend}`]
       const branch = typeof payload?.branch === 'string' && payload.branch !== '' ? readRef(payload, 'branch') : null
       const args = ['push']
       if (branch !== null) {
@@ -927,9 +1095,46 @@ export function apply(ctx, rawConfig) {
         if (payload?.setUpstream === true) args.push('--set-upstream', remote, branch)
         else args.push(remote, branch)
       }
-      const result = await runGit(args, { cwd: root, signal })
-      gitOk(result)
-      return { stdout: result.stdout, stderr: result.stderr }
+      const first = await runGit(args, { cwd: root, signal, config })
+      if (first.exitCode === 0) {
+        return { stdout: first.stdout, stderr: first.stderr, sslBackend: backend === null ? 'default' : backend, retried: false }
+      }
+      // schannel 类失败：用 openssl 重试一次（若调用方已经指定了后端就不再来回切换）。
+      if (backend === null && isSslBackendFailure(first.stderr)) {
+        const retry = await runGit(args, { cwd: root, signal, config: ['http.sslBackend=openssl'] })
+        if (retry.exitCode === 0) {
+          console.log('[dsh-git-vcs] schannel 失败，已用 http.sslBackend=openssl 重试成功')
+          return { stdout: retry.stdout, stderr: retry.stderr, sslBackend: 'openssl', retried: true }
+        }
+        gitOk(retry)
+      }
+      // 缺认证信息：若本次会话里已经有该主机的凭据（用户刚在认证表单里填过），内嵌凭据再推一次兜底。
+      if (classify(first.exitCode, first.stderr, first.aborted) === 'git-vcs/auth-required') {
+        const target = await resolvePushTarget(root, payload?.remote, signal)
+        const credential = target === null ? undefined : sessionCredentials.get(target.host)
+        if (target !== null && credential !== undefined) {
+          const authedUrl = credentialUrl(target.url, credential)
+          if (authedUrl !== null) {
+            const retryArgs = branch === null
+              ? ['push', authedUrl]
+              : ['push', ...(payload?.setUpstream === true ? ['--set-upstream'] : []), authedUrl, branch]
+            const retry = await runGit(retryArgs, { cwd: root, signal, config, sensitive: true })
+            if (retry.exitCode === 0) {
+              console.log('[dsh-git-vcs] 凭据助手不可用，已用内存凭据（内嵌 URL）推送成功')
+              return {
+                stdout: retry.stdout,
+                stderr: retry.stderr,
+                sslBackend: backend === null ? 'default' : backend,
+                retried: true,
+                usedSessionCredential: true,
+              }
+            }
+            gitOk(retry)
+          }
+        }
+      }
+      gitOk(first)
+      return { stdout: first.stdout, stderr: first.stderr, sslBackend: 'default', retried: false }
     },
 
     /** 贮藏（stash）操作。 */

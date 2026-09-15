@@ -7,7 +7,7 @@
  * 注意：沙箱下 Node 抓子进程输出不能用管道（EPERM），这里统一用文件描述符重定向。
  */
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdtempSync, openSync, closeSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdtempSync, openSync, closeSync, readFileSync, existsSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { apply } from '../index.js'
@@ -384,6 +384,62 @@ await check('stash drop 真的删掉记录', 'stash', { cwd: remoteScratch, acti
 await check('stash drop 之后列表为空', 'stash', { cwd: remoteScratch, action: 'list' }, (value) => (
   Array.isArray(value.stashes) && value.stashes.length === 0 ? undefined : `条数=${value.stashes === undefined ? 'n/a' : value.stashes.length}`
 ))
+
+/* ------------------------------------------------------- 凭据保存（credential/approve）
+ * 用临时 gitconfig + credential-store 指向临时文件，绝不碰用户真实的 ~/.git-credentials。
+ * 注意：某些受限环境（如 DSH 沙箱）凭据助手进程根本起不来（msys sh 建不了信号管道），
+ * 那时 stored 会是 false —— 这也是插件要处理的一种真实情况（回退到会话内存凭据），所以不算失败。
+ */
+const credDir = mkdtempSync(join(tmpdir(), 'gitvcs-cred-'))
+const credFile = join(credDir, 'creds')
+const cfgFile = join(credDir, 'gitconfig')
+writeFileSync(cfgFile, `[credential]\n\thelper = store --file=${credFile.replace(/\\/g, '/')}\n`, 'utf8')
+const savedGlobal = process.env.GIT_CONFIG_GLOBAL
+const savedSystem = process.env.GIT_CONFIG_SYSTEM
+process.env.GIT_CONFIG_GLOBAL = cfgFile
+process.env.GIT_CONFIG_SYSTEM = 'NUL'
+
+try {
+  await check('credential/approve 返回结构', 'credential/approve', {
+    cwd: remoteScratch,
+    url: 'https://example.com/owner/repo.git',
+    username: 'alice',
+    secret: 'tok-123',
+  }, (value) => {
+    if (value.host !== 'example.com') return `host=${value.host}`
+    if (value.username !== 'alice') return `username=${value.username}`
+    return typeof value.stored === 'boolean' ? undefined : `stored 类型异常：${typeof value.stored}`
+  })
+
+  if (existsSync(credFile)) {    const stored = readFileSync(credFile, 'utf8')
+    if (stored.includes('alice') && stored.includes('tok-123') && stored.includes('example.com')) {
+      results.push('OK   凭据已写进 credential store（主机级条目）')
+    } else {
+      results.push(`FAIL 凭据文件内容异常：${stored.slice(0, 100)}`)
+    }
+  } else {
+    results.push('OK   credential store 未落盘（本环境起不了凭据助手，插件会回退到会话内存凭据）')
+  }
+
+  await expectError('credential/approve 缺 secret', 'credential/approve', {
+    cwd: remoteScratch,
+    url: 'https://example.com/owner/repo.git',
+    username: 'alice',
+  }, 'git-vcs/bad-request')
+
+  await expectError('credential/approve 拒绝 SSH 地址', 'credential/approve', {
+    cwd: remoteScratch,
+    url: 'git@github.com:owner/repo.git',
+    username: 'alice',
+    secret: 'tok',
+  }, 'git-vcs/bad-request')
+} finally {
+  if (savedGlobal === undefined) delete process.env.GIT_CONFIG_GLOBAL
+  else process.env.GIT_CONFIG_GLOBAL = savedGlobal
+  if (savedSystem === undefined) delete process.env.GIT_CONFIG_SYSTEM
+  else process.env.GIT_CONFIG_SYSTEM = savedSystem
+  rmSync(credDir, { recursive: true, force: true })
+}
 
 rmSync(remoteScratch, { recursive: true, force: true })
 

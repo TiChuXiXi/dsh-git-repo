@@ -266,3 +266,32 @@
   - 底部状态栏只保留忙碌阶段文案，空闲时不占位置。
 - **验证**：`node --check`（index.js / lib/client.js）通过；`validate-plugin.mjs` 0 ERROR / 0 WARN；
   `verify-host.mjs` **39 通过 / 0 失败**；`preview-check.mjs` 全通过；动态预览 `gitvcs-3/pkg-9` 每轮重启（run-22 … run-37）由用户点验。
+
+### 2026-09-15（把 push 做成"能推通"：认证链路 + SSL 兜底）
+
+- **背景**：用户准备分两步走（先本地装插件真机测，再发布 npm），要求把 push 这件事定下来：
+  有 remote 就直接推、失败给错误；缺认证就走认证（用户名 + 密码/Token，认证通过全局存起来）；
+  网络或其它限制只报错误。
+- **改动（host `index.js`）**：
+  - `classify()` 新增 `git-vcs/auth-required`（`could not read Username` / `terminal prompts disabled` /
+    `Authentication failed` / `403` / `password authentication was removed` / `publickey` 等特征串）；
+    `isSslBackendFailure()` 单独识别 `schannel` / `SEC_E_NO_CREDENTIALS`。
+  - `runGit()` 支持 `stdin`（`SubprocessStdinMode` 的 `{ data }` 形式）与 `-c key=value` 形式的 `config`，
+    并新增 `sensitive` 标记：凭据类命令 argv 脱敏、输出显示"已隐藏"，不进 Console 流水。
+  - `push` 变成四级链路：直接推 → schannel 失败换 `http.sslBackend=openssl` 重试 → 若是缺认证且本会话已有该主机凭据
+    则用内嵌 URL 兜底再推（脱敏）→ 其余原样报错。
+  - 新增 `credential/approve`：`git credential approve`（密码走 **stdin**）→ `git credential fill` 回读校验（
+    `approve` 无人接收也返回 0，必须回读）→ 返回 `{ host, username, stored }`；同时把凭据记进进程内存
+    `sessionCredentials`（host → { username, secret }）供兜底。
+  - `remote/add` 接受可选 `username` / `secret`：添加时即认证（IDEA 的做法），保存失败只告警。
+  - 新增 `parseRemoteUrl` / `redactText` / `redactArgv`：URL 解析与脱敏（`scheme://user:secret@host` → `***`）。
+- **改动（client `lib/client.js`）**：
+  - `run()` 增加 `options.auth`：失败码是 `auth-required` 时**打开认证表单**而不是只弹错误；
+    `pushWithAuth()` 统一给推送带上认证上下文，认证完自动重推。
+  - Branches 页新增认证行（远程地址 + 用户名 + 密码/Token + 「保存并推送」/「取消」）与工具栏「凭据」按钮；
+    原来那条"推送已关闭…"说明条删掉（改成这个功能性表单）。
+  - Remotes 页 Add Remote 增加可选「用户名 / 密码·Token」，填了就随 `remote/add` 一起存进凭据。
+- **验证**：`verify-host.mjs` 新增 4 条断言（`credential/approve` 返回结构、凭据落盘或明确报告 `stored=false`、
+  缺 secret 报错、SSH 地址被拒）→ **43 通过 / 0 失败**；`preview-check.mjs` 全通过；`node --check` 通过。
+  README 增加「推送与认证（对齐 IDEA 的做法）」一节。
+- **说明**：本轮改动**未提交**，等用户真机（本地安装）实测过 push 再提交/推送。

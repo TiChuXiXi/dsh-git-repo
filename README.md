@@ -164,6 +164,35 @@ node scripts\verify-host.mjs D:\zxh\code\git-plugin
 - **所有等待都有文案**：顶部 2px 进度条 + 页脚阶段文案（读取仓库 / 暂存中 / 提交中 / 刷新列表…）+
   分区占位（读取差异… / 读取提交详情… / 读取远程仓库…），并在状态栏回显真实往返耗时 `上次操作 N ms`。
 
+## 推送与认证（对齐 IDEA 的做法）
+
+推送不是"配好就一直能推"或"永远推不了"，而是按下面这条链路逐级处理：
+
+1. **直接推**：仓库已配好 remote 就直接 `git push`（当前分支到它的 upstream），或按分支行推指定的
+   `git push <remote> <branch>`。
+2. **SSL 后端兜底**：若失败原因是 `schannel` 拿不到凭据上下文（`SEC_E_NO_CREDENTIALS` 一类），
+   自动换 `-c http.sslBackend=openssl` **重试一次**（第一次失败不会改动远端，重试是安全的），
+   成功后 Console 里能看到这一次用了 openssl。也可用请求参数 `sslBackend` 固定后端。
+3. **缺认证信息**：失败被归类为 `git-vcs/auth-required` 时，面板弹出**认证表单**（分支页顶部一行：
+   用户名 + 密码/Token + 「保存并推送」）。提交走 `credential/approve`：
+   - 用 `git credential approve` 把凭据交给**你机器上的凭据助手**保存（`store` → `~/.git-credentials`，
+     或 `manager` → Windows 凭据管理器），**存成主机级**（`https://user:token@github.com`），
+     所以同一主机下的仓库以后都不用再填；保存后用 `git credential fill` 回读校验，因为 `approve`
+     即使没人接收也返回 0；
+   - 密码只走 **stdin**，不进 argv；凭据类命令在 Console 流水里 argv 会脱敏、输出显示为"已隐藏"；
+   - 若助手不可用（例如受限环境里 msys `sh` 起不来），结果里 `stored: false`，此时凭据记在**本进程内存**中，
+     本次会话内的推送会用内嵌 URL 的兜底方式完成（同样脱敏）。
+4. **其余失败**：网络不通、被拒（`push-rejected`）、无权限等**原样报错**（右下角 toast + Console 页可回看原文），
+   插件不猜、不重试。
+
+**添加远程时就能认证**：Remotes 页的 Add Remote 多了可选的「用户名 / 密码·Token」，填了会在
+`remote/add` 之后顺手存进凭据助手（保存失败也只警告，不影响远程已加好的事实）。
+
+**SSH 远程不做认证**：`git@host:owner/repo.git` 走密钥/agent，插件不参与；失败按第 4 条报错。
+
+> 想真推之前记得把 `allowPush` 打开（默认 `false`，见下节）。沙箱环境里凭据助手可能起不来
+> （`sh.exe: couldn't create signal pipe`），此时第 3 条的会话内存兜底就是主要通路。
+
 ## 配置
 
 插件行的 `config`（见 `cordis.patch.yml`，改后触发热替换）：

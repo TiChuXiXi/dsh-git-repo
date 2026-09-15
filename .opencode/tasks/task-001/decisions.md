@@ -60,3 +60,7 @@
 | 2026-09-15 | 输入框统一 `outline: none` + `TextInput`/`TextArea` 组件用内部 `focused` 状态模拟 `:focus`（蓝描边 + 淡底 + 柔光） | 用户反馈默认焦点是高亮一圈黑色很丑；零构建下写不了 `:focus`，只能状态模拟（只重渲染该输入框）。复选框单独用 `accent-color` |
 | 2026-09-15 | 底部状态栏只在忙碌时渲染（只留阶段文案），路径/远程/改动数/耗时/命令数/右键提示全部删掉 | 用户要求删；这些信息在顶部路径框、分组标题、Console 页、完成 toast 里都能看到，重复显示没有价值 |
 | 2026-09-15 | 本地分支行显示相对 upstream 的 `↑领先` / `↓落后`（都为零时不显示） | 数据早就在 `parseBranchList` 里（`%(upstream:track,nobracket)`），补齐信息密度；为零时不显示是为了避免每行挂 `↑0 ↓0` |
+| 2026-09-15 | 推送按 IDEA 的链路处理：直接推 → schannel 失败自动换 `http.sslBackend=openssl` 重试一次 → 缺认证（`git-vcs/auth-required`）弹认证表单走 `credential/approve` 存进 git 凭据 → 其余原样报错 | 用户要求"把 push 这件事完成"：认证缺失就走认证流程、网络或其它限制只报错误。要点是把失败分成**可操作的几类**，而不是一律把原始 stderr 抛给用户 |
+| 2026-09-15 | 凭据走 `git credential approve`，密码只放 **stdin**（`SubprocessStdinMode` 支持 `{ data }`），不传 path 存成主机级；保存后用 `git credential fill` 回读校验；另存一份本进程内存凭据作兜底 | 不进 argv 就不会出现在 Console 流水里（另外 argv 统一 `redactText` 脱敏、敏感命令输出隐藏）；`approve` 即使无人接收也返回 0，所以必须 fill 回读；受限环境里 msys `sh` 起不来导致助手不可用，内存凭据 + 内嵌 URL 是唯一能推通的兜底 |
+| 2026-09-15 | `remote/add` 接受可选 `username`/`secret`，添加时即认证；Remotes 页表单加"用户名 / 密码·Token（可选）" | 对齐 IDEA "添加新 remote 时进行认证，认证通过就全局存起来"，避免"先加远程、再推一次、失败了才填账号" |
+| 2026-09-15 | Branches 页把原来那条"推送已关闭…"说明条删掉，改成**认证表单区域**（需要时才出现）；工具栏加「凭据」按钮可随时配置 | 用户已明确删掉说明条；认证表单是功能性 UI，出现即有用途，不占常驻版面 |
