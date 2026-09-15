@@ -23,3 +23,8 @@ Thumbs.db
 # 本地环境变量
 .env
 .env.local
+
+# 动态插件打包中间产物（.opencode 下的临时文件）
+.opencode/*.txt
+.opencode/*.json
+.opencode/pack.mjs

@@ -481,6 +481,40 @@ export function apply(ctx, rawConfig) {
     return message
   }
 
+  /** 校验远程名：trim 后非空、不以 - 开头、不含空白与 git 保留字符、不以 . 结尾且不含 ..。 */
+  function readRemoteName(payload) {
+    const raw = payload?.name
+    if (typeof raw !== 'string' || raw.trim() === '') {
+      throw new GitError('git-vcs/bad-request', '远程名不能为空')
+    }
+    const name = raw.trim()
+    if (name.includes('\0')) throw new GitError('git-vcs/bad-request', '远程名含非法字符')
+    if (name.startsWith('-')) throw new GitError('git-vcs/bad-request', '远程名不能以 - 开头')
+    if (/[\s]/.test(name)) throw new GitError('git-vcs/bad-request', '远程名不能含空白')
+    if (/[:?*~\\\[\]\^]/.test(name)) throw new GitError('git-vcs/bad-request', `远程名含 git 保留字符：${name}`)
+    if (name.endsWith('.') || name.includes('..')) throw new GitError('git-vcs/bad-request', `远程名不能以 . 结尾或包含 ..`)
+    return name
+  }
+
+  /** 必填 URL：非空、trim、不含控制字符（scheme 合法性交给 git 自身报 git-vcs/git-failed）。 */
+  function readUrl(payload, key = 'url') {
+    const raw = payload?.[key]
+    if (typeof raw !== 'string' || raw.trim() === '') {
+      throw new GitError('git-vcs/bad-request', `${key} 不能为空`)
+    }
+    const value = raw.trim()
+    if (value.includes('\0')) throw new GitError('git-vcs/bad-request', `${key} 含非法字符`)
+    return value
+  }
+
+  /** 可选 URL：空 / 未传 → null；其它与 readUrl 同样校验。 */
+  function readOptionalUrl(payload, key) {
+    const raw = payload?.[key]
+    if (typeof raw !== 'string') return null
+    if (raw.trim() === '') return null
+    return readUrl({ [key]: raw }, key)
+  }
+
   /** 一次 status 调用（repo/info 与 status 端点共用）。 */
   async function statusOf(cwd, signal) {
     const result = gitOk(await runGit(['status', '--porcelain=v2', '--branch', '-z'], { cwd, signal }))
@@ -675,6 +709,41 @@ export function apply(ctx, rawConfig) {
       const { root } = await ensureWorkdir(payload?.cwd, signal)
       const result = gitOk(await runGit(['remote', '-v'], { cwd: root, signal }))
       return { remotes: parseRemoteList(result.stdout), root }
+    },
+
+    /** 添加远程仓库：name + url；push 与 fetch 不同时再走 `remote set-url --push`。 */
+    async 'remote/add'(payload, signal) {
+      requireWrite()
+      const { root } = await ensureWorkdir(payload?.cwd, signal)
+      const name = readRemoteName(payload)
+      const url = readUrl(payload, 'url')
+      const push = readOptionalUrl(payload, 'push')
+      // 重名检测：git remote get-url 退出码 0 表示已存在。
+      const exists = await runGit(['remote', 'get-url', name], { cwd: root, signal })
+      if (exists.exitCode === 0) {
+        throw new GitError('git-vcs/remote-exists', `远程已存在：${name}`)
+      }
+      gitOk(await runGit(['remote', 'add', name, url], { cwd: root, signal }))
+      if (push !== null && push !== url) {
+        gitOk(await runGit(['remote', 'set-url', '--push', name, push], { cwd: root, signal }))
+      }
+      // 失效缓存：repo/info 与 remote/list 各自缓存了 remote.origin.url 等。
+      remoteUrlCache.delete(cacheKey(root))
+      return { name, url, push: push ?? url }
+    },
+
+    /** 删除远程仓库：先 `get-url` 校验存在，再 `remote remove`。 */
+    async 'remote/remove'(payload, signal) {
+      requireWrite()
+      const { root } = await ensureWorkdir(payload?.cwd, signal)
+      const name = readRemoteName(payload)
+      const exists = await runGit(['remote', 'get-url', name], { cwd: root, signal })
+      if (exists.exitCode !== 0) {
+        throw new GitError('git-vcs/remote-not-found', `远程不存在：${name}`)
+      }
+      gitOk(await runGit(['remote', 'remove', name], { cwd: root, signal }))
+      remoteUrlCache.delete(cacheKey(root))
+      return { removed: name }
     },
 
     /** 暂存（git add）。 */

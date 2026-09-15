@@ -6,7 +6,7 @@
  *
  * 注意：沙箱下 Node 抓子进程输出不能用管道（EPERM），这里统一用文件描述符重定向。
  */
-import { spawn } from 'node:child_process'
+import { spawn, spawnSync } from 'node:child_process'
 import { mkdtempSync, openSync, closeSync, readFileSync, rmSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
@@ -191,6 +191,61 @@ if (outside.ok === false && (outside.error.code === 'git-vcs/not-a-repo' || outs
 } else {
   results.push(`FAIL 非仓库目录未按预期被拒：${JSON.stringify(outside).slice(0, 160)}`)
 }
+
+/* ----------------------------------------- remote/add / remote/remove 端点
+ * 用 mkdtemp + 真实 git 建临时仓库；add/remove 是写操作，会改 .git/config，
+ * 不能拿真实仓库试。所有断言用与上面同样的 check() 风格，跑完整体 rmSync。
+ */
+async function expectError(label, endpoint, payload, expectedCode) {
+  const result = await handler(endpoint, payload, new AbortController().signal)
+  if (result.ok === false && result.error.code === expectedCode) {
+    results.push(`OK   ${label}`)
+  } else {
+    results.push(`FAIL ${label}: 期望 ${expectedCode}，得到 ${JSON.stringify(result).slice(0, 200)}`)
+  }
+}
+
+const remoteScratch = mkdtempSync(join(tmpdir(), 'gitvcs-remote-'))
+function rawGit(args) {
+  const r = spawnSync('git', args, { cwd: remoteScratch, env: process.env, stdio: 'ignore', windowsHide: true })
+  return r.status
+}
+rawGit(['init', '--initial-branch=main', '--quiet'])
+rawGit(['config', 'user.email', 'verify@test'])
+rawGit(['config', 'user.name', 'verify'])
+rawGit(['commit', '--allow-empty', '--quiet', '-m', 'init'])
+
+await expectError('remote/add 缺 name', 'remote/add', { cwd: remoteScratch }, 'git-vcs/bad-request')
+await expectError('remote/add 缺 url', 'remote/add', { cwd: remoteScratch, name: 'foo' }, 'git-vcs/bad-request')
+await expectError('remote/add 名字非法 ..evil', 'remote/add', { cwd: remoteScratch, name: '..evil', url: 'https://example.com/r.git' }, 'git-vcs/bad-request')
+
+await check('remote/add 正常', 'remote/add', { cwd: remoteScratch, name: 'test-origin', url: 'https://example.com/r.git' }, (value) => {
+  if (value === null || value === undefined) return '返回值为空'
+  if (value.name !== 'test-origin') return `name=${value.name}`
+  if (value.url !== 'https://example.com/r.git') return `url=${value.url}`
+  return undefined
+})
+
+await check('remote/list 验证 add', 'remote/list', { cwd: remoteScratch }, (value) => {
+  const hit = Array.isArray(value.remotes) ? value.remotes.find((r) => r.name === 'test-origin') : undefined
+  return hit === undefined ? '新增远程未出现在 list 中' : undefined
+})
+
+await expectError('remote/add 重名', 'remote/add', { cwd: remoteScratch, name: 'test-origin', url: 'https://x.com/y.git' }, 'git-vcs/remote-exists')
+await expectError('remote/remove 不存在', 'remote/remove', { cwd: remoteScratch, name: 'nope' }, 'git-vcs/remote-not-found')
+
+await check('remote/remove 正常', 'remote/remove', { cwd: remoteScratch, name: 'test-origin' }, (value) => {
+  if (value === null || value === undefined) return '返回值为空'
+  if (value.removed !== 'test-origin') return `removed=${value.removed}`
+  return undefined
+})
+
+await check('remote/list 验证 remove', 'remote/list', { cwd: remoteScratch }, (value) => {
+  const hit = Array.isArray(value.remotes) ? value.remotes.find((r) => r.name === 'test-origin') : undefined
+  return hit === undefined ? undefined : '删除远程仍出现在 list 中'
+})
+
+rmSync(remoteScratch, { recursive: true, force: true })
 
 console.log(results.join('\n'))
 const failed = results.filter((line) => line.startsWith('FAIL'))

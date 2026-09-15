@@ -44,3 +44,25 @@
   - 真实 profile 安装仍卡在跨盘符坏 junction（`~/.dsh/profiles/web` 写入需提权），修法命令在 README「跨盘符安装坑」。
 - **修改的关键文件**：`index.js`、`lib/client.js`、`scripts/verify-host.mjs`、`README.md`、`LESSONS.md`、`.opencode/tasks/**`
 - **Git commit**：本轮 `feat:` 提交（`3048f64 提交测试` 是用户经插件面板产生的提交）
+
+## 本次会话摘要
+
+### 2026-09-14（远程仓库模块：add / remove）
+
+- **完成**：
+  - host 半区新增两个 RPC 端点：`remote/add`（`git remote add`，可选 push URL）与 `remote/remove`（`git remote remove`）。
+    入参校验在 `readRemoteName` / `readUrl` / `readOptionalUrl` 三个 helper 中；错误码沿用 `git-vcs/bad-request`，新增 `git-vcs/remote-exists` / `git-vcs/remote-not-found`。
+  - 写后清理 `remoteUrlCache`（与 `repo/info` 的 `remote.origin.url` 缓存对齐），保证后续 `repo/info` 立即看到新远程。
+  - 写门禁走 `requireWrite()`（不挂 `requireDangerous()`：删除仅删 `.git/config` 段，不丢历史/分支）。
+  - 浏览器半区改写 `renderRemotes`：顶部 toolbar 加 Remote 名 + URL + 可选 Push URL 输入 + Add Remote 按钮；
+    每行右侧加 Remove 危险按钮走 `ask()` 内联二次确认；写后 `setTick(n=>n+1)` 触发 `useEffect` 重拉 `remote/list`。
+  - `scripts/verify-host.mjs` 扩展：临时仓库（`mkdtempSync` + `git init` + 空 commit）+ `expectError` helper，
+    覆盖 8 条断言（add 缺 name/url/名字非法、add 正常、add 后 list、add 重名、remove 不存在、remove 正常、remove 后 list），
+    跑完整体 `rmSync` 清理。
+- **验证**：
+  - `node --check index.js` / `lib/client.js` / `scripts/verify-host.mjs`：全部通过
+  - `validate-plugin.mjs`：**0 ERROR / 0 WARN**
+  - `smoke-boot.mjs`（隔离 DSH_HOME）：通过
+  - `scripts/verify-host.mjs`：**22 通过 / 0 失败**（原 13 + 新 9，含 add 后 list 与 remove 后 list 两条；expectError 计为单独的 OK 行）
+- **修改的关键文件**：`index.js`、`lib/client.js`、`scripts/verify-host.mjs`、`README.md`、`.opencode/tasks/**`
+- **Git commit**：本轮 `feat:` 提交（远程仓库模块：add / remove）

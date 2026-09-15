@@ -7,7 +7,7 @@
 
 | 任务ID | 模块 | 状态 | 关联分支 | 最后更新 | 上下文入口 |
 |--------|------|------|---------|---------|-----------|
-| task-001 | Git 版本管理插件（右侧栏 tab + host RPC + IDEA 式 UI） | [源码已同步动态版改进，待安装验证] | main | 2026-09-14 | `.opencode/tasks/task-001/context.md` |
+| task-001 | Git 版本管理插件（右侧栏 tab + host RPC + IDEA 式 UI） | [远程仓库 add/remove 已落盘，自检全绿，待跨盘符安装与真机 UI 验证] | main | 2026-09-14 | `.opencode/tasks/task-001/context.md` |
 
 ## 快速查找规则
 

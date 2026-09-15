@@ -88,7 +88,8 @@ node scripts\verify-host.mjs D:\zxh\code\git-plugin
   详情内含 Revert / Cherry-Pick / Reset --soft / Reset --hard、**「新分支名」→ 基于该提交建分支（不切换）**、
   变更文件与 patch，右上角 `×` 关闭
 - **Branches**：本地 / 远程分支（当前分支高亮），切换、合并、删除，以及「新建并切换」
-- **Remotes**：`git remote -v` 的全部远程与 fetch / push 地址（只读；懒加载，切换会话或刷新时重取）
+- **Remotes**：`git remote -v` 的全部远程与 fetch / push 地址；顶部表单可填**名字 + URL（+ 可选 push URL）→ Add Remote**，
+  每个远程行有 **Remove** 危险按钮（点击走内联二次确认）。均受 `allowWrite` 门禁控制。
 - **Stash**：stash 列表与 push / pop / apply / drop
 - **Console**：面板发起的每条 git 命令（argv、退出码、耗时、stderr、是否截断）
 - **底部状态栏**：仓库根、当前远程、改动数、上次操作耗时、命令条数；忙碌时显示进度条与阶段文案
@@ -142,7 +143,7 @@ node scripts\verify-host.mjs D:\zxh\code\git-plugin
 - 历史只列当前分支（`--all` 需手工改调用）；首列的连线列是**单轨**图形（一条线 + 节点），
   不是多分支 lane 的提交图。
 - 差异视图是统一 diff 文本，没有并排 diff、没有按 hunk/行勾选提交（Partial Commit）。
-- Remotes 页是只读查看：增删远程要改 `.git/config`（`git remote add/remove`），面板暂不提供。
+- Remotes 页增删远程后不会自动 fetch：track 关系已写进 `.git/config`，是否抓取由用户在工具栏点 Fetch。
 - 没有 changelist 分组、没有 Shelf、没有多 VCS root、没有编辑器 gutter 标记（DSH 无编辑器面板可挂）。
 - 没有文件系统监听：自动刷新依赖 `autoRefreshSeconds` 或手动刷新。
 - 状态只在内存：刷新页面即重置（与官方右侧栏一致）。
