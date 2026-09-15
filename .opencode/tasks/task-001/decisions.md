@@ -36,3 +36,6 @@
 | 2026-09-15 | 提交树的着色从「子→父单遍继承」改为**按分支优先级的多源 BFS**（当前分支 0 > 其它本地 1 > 远程 2，先到的染色不被覆盖） | 单遍继承的胜负取决于日志顺序：若其它分支的 tip 比当前分支 tip 更新，它会先写入父提交的颜色，把当前分支整条链染成别的分支色（用户举的反例：main A-B-C-D + 远程在 C + test C-E，要求 A/B/C/D 全 main、只有 E 是 test）。按优先级分组各刷一遍，当前分支的链先定型，后处理的分支只能染色自己独有的提交 |
 | 2026-09-15 | HEAD 提交没有分支标签（detached HEAD）时，单独用 `headHash` 给优先级 0 补一个种子（颜色取 `repo.branch` 对应的调色板项，取不到则 0） | 否则 detached HEAD 下没有任何优先级 0 的种子，整条链会被别的分支颜色接管 |
 | 2026-09-15 | Log 行高亮用 React 状态 `hoverHash`（`onMouseEnter`/`onMouseLeave`，仅在哈希变化时 set），并在行样式上加 `cursor: pointer` | 零构建路线下没有样式表可用（不能写 `:hover`）；用状态模拟是唯一不触碰构建链的写法，且只在哈希变化时更新，避免鼠标移动引发无谓渲染 |
+| 2026-09-15 | 提交详情面板从「右侧栏」改为「Log 下方」的上下布局，高度用顶边拖拽条（`RowSplitter`，pointer capture + `row-resize`）调整，默认 300px、钳制 140–720px 且 `maxHeight: 80%` | 用户要求上下布局并把面板放下面；80% 上限避免面板拖高后溢出容器。为此把共用的 `S.body` / `S.detail` 拆开：Local Changes 仍用「左右布局」的 `S.body` + `S.detail`，Log 用新的 `S.bodyStack` + `S.detailBottom`（一开始改共用样式把 Local Changes 的差异栏也带歪了） |
+| 2026-09-15 | `show` 增加 `noPatch: true`（只跑 meta + name-status 两个探测），新增 `show/file` 端点按需拉单个文件的 diff | 原来点一次提交就把整次提交的 patch 全传过来并整段渲染；用户要求"默认不显示文件详情、点哪个文件才展示哪个"。顺带省掉一次 git show 与整包传输 |
+| 2026-09-15 | 详情里的文件行：hover 高亮（`detailHover` 状态）+ `cursor: pointer` + 点击选中（`detailFile`），选中行用 `detailFileRowOn`，再点一次收起 | 零构建下没有 `:hover`，仍用状态模拟；选中态与 hover 态分开，避免"点了看不出选中哪个" |

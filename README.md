@@ -103,8 +103,12 @@ node scripts\verify-host.mjs D:\zxh\code\git-plugin
   - **列宽**：时间 / Message / Author / Commit 四列表头右侧有拖动手柄（`col-resize`，pointer capture，
     不依赖 window 监听），拖动范围各自钳制（92–360 / 120–900 / 60–280 / 64–220px）；
     Message 列默认吃掉剩余宽度，被拖动后改为固定宽度，总宽超出面板即横向滚动。
-  - **提交详情默认不显示**，点条目才展开，详情内含 Revert / Cherry-Pick / Reset --soft / Reset --hard、
-    **「新分支名」→ 基于该提交建分支（不切换）**、变更文件与 patch，右上角 `×` 关闭。
+  - **提交详情默认不显示**，点条目才展开；面板在**Log 下方**（上下布局），顶边有拖拽条可改高度（默认 300px，
+    上拖变高，钳制 140–720px 且不超过容器 80%），右上角 `×` 关闭。
+    详情内含 Revert / Cherry-Pick / Reset --soft / Reset --hard、**「新分支名」→ 基于该提交建分支（不切换）**，
+    以及变更文件列表——**默认不展示任何文件的差异**，文件行有 hover 高亮、光标 `pointer`，
+    **点某个文件才按需拉取该文件的 diff**（`show/file` 端点），再点一次收起；
+    点提交时只取元数据与文件列表（`show` + `noPatch`），不再一次性传输整次提交的 patch。
 - **Branches**：本地 / 远程分支（当前分支高亮），切换、合并、删除，以及「新建并切换」
 - **Remotes**：`git remote -v` 的全部远程与 fetch / push 地址；顶部表单可填**名字 + URL（+ 可选 push URL）→ Add Remote**，
   每个远程行有 **Remove** 危险按钮（点击走内联二次确认）。均受 `allowWrite` 门禁控制。

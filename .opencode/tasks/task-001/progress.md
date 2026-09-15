@@ -137,3 +137,18 @@
   - Log 行样式加 `cursor: pointer`，新增 `rowHover` 背景 + `hoverHash` 状态（`onMouseEnter`/`onMouseLeave`，
     只在哈希变化时 set），选中行仍用 `rowOn`。
 - **验证**：`node --check` 通过；`verify-host.mjs` 23/23；`preview-check.mjs` 全通过；预览 `gitvcs-3/pkg-9` 已重启（run-13）。
+
+### 2026-09-15（提交详情改上下布局 + 高度可拖 + 按文件懒加载差异）
+
+- **用户反馈**：点提交后详情面板改为上下布局、放到下面、高度可拖拽；默认不显示变更文件的具体变更；
+  变更文件行要有 hover；点击某个文件才展示该文件的变更（不要一次性展示所有文件的变更）。
+- **完成**：
+  - `index.js`：`show` 支持 `noPatch: true`（只并发 meta + name-status 两探测，`patch` 返回空串）；
+    新增 `'show/file'`（rev + path → 单文件 patch）；抽出 `readFilePath` 校验（非空、无 NUL、不以 - 开头）。
+  - `lib/client.js`：`S.body`/`S.detail`（Local Changes 的左右布局）保持不变，新增 `S.bodyStack` + `S.detailBottom`；
+    `RowSplitter`（顶边拖拽条，pointer capture、`row-resize`）控制高度 `detailHeight`（默认 300，钳 140–720，maxHeight 80%）；
+    `openCommit` 改走 `show + noPatch`；新增 `show/file` 的按需拉取 effect（`detailFile`/`filePatch`/`fileLoading`/`detailHover`）；
+    变更文件行 hover 高亮 + `pointer` + 点击选中/再点收起；差异区默认提示"点上面的文件…"。
+  - `scripts/verify-host.mjs`：新增 4 条断言（`show` noPatch 空 patch、`show/file` 单文件且只含一个 diff、缺 path、path 以 - 开头）→ **27 通过 / 0 失败**。
+  - `scripts/preview-check.mjs`：端点清单改为「端点 + 载荷」，覆盖 `show` / `show/file`。
+- **验证**：`node --check` 两半区通过；`verify-host.mjs` 27/27；`preview-check.mjs` 全通过；预览 `gitvcs-3/pkg-9` 已重启（run-14）。

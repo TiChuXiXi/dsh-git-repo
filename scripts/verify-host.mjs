@@ -179,6 +179,31 @@ await check('console/list', 'console/list', {}, (value) => {
   return bad === undefined ? undefined : 'argv 缺失'
 })
 
+// 提交详情：默认只拿元数据 + 变更文件（noPatch），单个文件的差异由 show/file 按需拉。
+await check('show 不带 patch（noPatch）', 'show', { cwd, rev: 'HEAD', noPatch: true }, (value) => {
+  if (value.patch !== '') return `noPatch 时 patch 应为空串，实际 ${value.patch.length} 字节`
+  if (!Array.isArray(value.files)) return 'files 不是数组'
+  return value.commit === null ? 'commit 元数据为空' : undefined
+})
+
+const headDetail = await handler('show', { cwd, rev: 'HEAD', noPatch: true }, new AbortController().signal)
+const headFile = headDetail.ok === true && Array.isArray(headDetail.value.files) && headDetail.value.files.length > 0
+  ? headDetail.value.files[0].path
+  : null
+if (headFile === null) {
+  results.push('FAIL show/file 单文件差异: HEAD 没有变更文件可测')
+} else {
+  await check('show/file 单文件差异', 'show/file', { cwd, rev: 'HEAD', path: headFile }, (value) => {
+    if (value.path !== headFile) return `path 回显不一致：${value.path}`
+    if (typeof value.patch !== 'string' || value.patch.includes('diff --git') === false) return 'patch 不像 diff'
+    // 只应包含选中文件，不能把整次提交的所有文件都带上。
+    const files = value.patch.split('\ndiff --git ').length
+    return files === 1 ? undefined : `patch 含 ${files} 个文件`
+  })
+  await expectError('show/file 缺 path', 'show/file', { cwd, rev: 'HEAD' }, 'git-vcs/bad-request')
+  await expectError('show/file 路径以 - 开头', 'show/file', { cwd, rev: 'HEAD', path: '-x' }, 'git-vcs/bad-request')
+}
+
 // 未知端点：必须返回 git-vcs/unknown-endpoint 信封（不抛）。
 const unknown = await handler('nope/nope', {}, new AbortController().signal)
 if (unknown.ok !== false || unknown.error.code !== 'git-vcs/unknown-endpoint') {

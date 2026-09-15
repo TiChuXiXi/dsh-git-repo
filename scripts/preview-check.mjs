@@ -271,10 +271,16 @@ if (call === undefined) {
   process.exit(1)
 }
 
-const endpoints = ['repo/snapshot', 'repo/info', 'branch/list', 'stash/list', 'console/list', 'remote/list']
+const calls = [
+  { endpoint: 'repo/snapshot', payload: { cwd: REPO, limit: 50, consoleLimit: 60 } },
+  { endpoint: 'repo/info', payload: { cwd: REPO } },
+  { endpoint: 'show', payload: { cwd: REPO, rev: 'HEAD', noPatch: true } },
+  { endpoint: 'show/file', payload: { cwd: REPO, rev: 'HEAD', path: 'README.md' } },
+  { endpoint: 'console/list', payload: { cwd: REPO } },
+  { endpoint: 'remote/list', payload: { cwd: REPO } },
+]
 let bad = 0
-for (const endpoint of endpoints) {
-  const payload = endpoint === 'repo/snapshot' ? { cwd: REPO, limit: 50, consoleLimit: 60 } : { cwd: REPO }
+for (const { endpoint, payload } of calls) {
   let envelope
   try {
     envelope = await call({ endpoint, payload })

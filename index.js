@@ -464,6 +464,19 @@ export function apply(ctx, rawConfig) {
     return paths
   }
 
+  /** 取可选 / 必填的文件路径：不接受空串、NUL 与以 - 开头的值（避免被 git 当成参数）。 */
+  function readFilePath(payload, optional = false) {
+    const raw = payload?.path
+    if (raw === undefined || raw === null || raw === '') {
+      if (optional === true) return null
+      throw new GitError('git-vcs/bad-request', '缺少 path')
+    }
+    if (typeof raw !== 'string' || raw.includes('\0') || raw.startsWith('-')) {
+      throw new GitError('git-vcs/bad-request', 'path 非法')
+    }
+    return raw
+  }
+
   function readRef(payload, key = 'ref') {
     const ref = payload?.[key]
     if (typeof ref !== 'string' || ref.trim() === '') {
@@ -674,7 +687,9 @@ export function apply(ctx, rawConfig) {
     async show(payload, signal) {
       const { root } = await ensureWorkdir(payload?.cwd, signal)
       const rev = readRef(payload, 'rev')
-      const filePath = typeof payload?.path === 'string' && payload.path !== '' ? payload.path : null
+      const filePath = readFilePath(payload, true)
+      // 详情面板默认只列变更文件，patch 由 show/file 按需拉：noPatch 时省掉一次 git show 与整包传输。
+      const wantPatch = payload?.noPatch !== true
       const nameArgs = ['show', '--no-color', '--format=', '--name-status', rev]
       const patchArgs = ['show', '--no-color', '--format=', `-U${config.diffContextLines}`, rev]
       if (filePath !== null) {
@@ -682,11 +697,12 @@ export function apply(ctx, rawConfig) {
         patchArgs.push('--', filePath)
       }
       // 三段探测并发：点一次提交只等一波进程创建。
-      const [meta, nameStatus, patch] = await Promise.all([
+      const probes = [
         runGit(['show', '--no-color', '--date=iso-strict', `--pretty=format:${LOG_FORMAT}`, '--no-patch', rev], { cwd: root, signal }),
         runGit(nameArgs, { cwd: root, signal }),
-        runGit(patchArgs, { cwd: root, signal }),
-      ])
+      ]
+      if (wantPatch) probes.push(runGit(patchArgs, { cwd: root, signal }))
+      const [meta, nameStatus, patch] = await Promise.all(probes)
       const commits = parseCommitList(gitOk(meta).stdout)
       const files = []
       for (const line of gitOk(nameStatus).stdout.split('\n')) {
@@ -695,8 +711,18 @@ export function apply(ctx, rawConfig) {
         if (parts.length < 2) continue
         files.push({ status: parts[0], path: parts[parts.length - 1], origPath: parts.length > 2 ? parts[1] : null })
       }
-      gitOk(patch)
-      return { commit: commits[0] ?? null, files, patch: patch.stdout }
+      if (wantPatch) gitOk(patch)
+      return { commit: commits[0] ?? null, files, patch: wantPatch ? patch.stdout : '' }
+    },
+
+    /** 单文件在某次提交里的差异：详情面板点开某个变更文件时才拉，避免一次拉整次提交的 patch。 */
+    async 'show/file'(payload, signal) {
+      const { root } = await ensureWorkdir(payload?.cwd, signal)
+      const rev = readRef(payload, 'rev')
+      const filePath = readFilePath(payload)
+      const args = ['show', '--no-color', '--format=', `-U${config.diffContextLines}`, rev, '--', filePath]
+      const result = gitOk(await runGit(args, { cwd: root, signal }))
+      return { patch: result.stdout, path: filePath }
     },
 
     /** 本地 + 远程分支。 */
