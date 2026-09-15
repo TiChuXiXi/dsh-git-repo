@@ -151,7 +151,18 @@ await check('log 解析', 'log', { cwd, limit: 5 }, (value) => {
 await check('branches 解析', 'branches', { cwd }, (value) => {
   if (!Array.isArray(value.local)) return 'local 不是数组'
   const main = value.local.find((row) => row.name === 'main')
-  return main === undefined ? '没有找到 main 分支' : undefined
+  if (main === undefined) return '没有找到 main 分支'
+  // 提交树列靠完整哈希把分支标签钉到提交上，缺了就只能退化成短哈希匹配。
+  if (typeof main.hash !== 'string' || main.hash.length < 40) return `分支完整哈希异常：${main.hash}`
+  return undefined
+})
+
+await check('snapshot 分支标签可定位提交', 'repo/snapshot', { cwd, limit: 50, consoleLimit: 60 }, (value) => {
+  if (!Array.isArray(value.commits) || value.commits.length === 0) return 'commits 为空'
+  const hashes = new Set(value.commits.map((row) => row.hash))
+  const tips = [...value.branches.local, ...value.branches.remote]
+  const matched = tips.filter((row) => hashes.has(row.hash))
+  return matched.length === 0 ? '没有任何分支标签能匹配到列表里的提交' : undefined
 })
 
 await check('diff 全仓', 'diff', { cwd }, (value) => typeof value.patch === 'string' ? undefined : 'patch 不是字符串')

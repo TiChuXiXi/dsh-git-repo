@@ -7,7 +7,7 @@
 
 | 任务ID | 模块 | 状态 | 关联分支 | 最后更新 | 上下文入口 |
 |--------|------|------|---------|---------|-----------|
-| task-001 | Git 版本管理插件（右侧栏 tab + host RPC + IDEA 式 UI） | [远程仓库 add/remove 已落盘，自检全绿，待跨盘符安装与真机 UI 验证] | main | 2026-09-14 | `.opencode/tasks/task-001/context.md` |
+| task-001 | Git 版本管理插件（右侧栏 tab + host RPC + IDEA 式 UI） | [Log 改版（IDEA 列序 / 分支标签 / 点击复制 / 可拖列宽）已落盘，自检 23/23；动态预览改为装载真实源码，待跨盘符安装与真机验证] | main | 2026-09-15 | `.opencode/tasks/task-001/context.md` |
 
 ## 快速查找规则
 
@@ -25,3 +25,4 @@
 | host 半区入口与工具注册 | `index.js` | - |
 | 插件配置 schema | `index.js`（Schemastery Config） | - |
 | 浏览器半区 UI（可选） | `lib/client.js` | - |
+

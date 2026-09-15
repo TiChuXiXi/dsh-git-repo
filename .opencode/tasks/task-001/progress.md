@@ -66,3 +66,33 @@
   - `scripts/verify-host.mjs`：**22 通过 / 0 失败**（原 13 + 新 9，含 add 后 list 与 remove 后 list 两条；expectError 计为单独的 OK 行）
 - **修改的关键文件**：`index.js`、`lib/client.js`、`scripts/verify-host.mjs`、`README.md`、`.opencode/tasks/**`
 - **Git commit**：本轮 `feat:` 提交（远程仓库模块：add / remove）
+
+## 本次会话摘要
+
+### 2026-09-15（Log 改版：IDEA 列序 + 分支标签 + 点击复制 + 可拖列宽）
+
+- **需求**（用户原话要点）：列顺序改为时间、提交树、message、author、commit；提交树列标出所有分支名（本地+远程）；
+  Commit 列直接点 ID 复制（不要独立按钮）；列宽可手动拖动，提交树列自适应且不可拖。
+- **完成**：
+  - `index.js`：`BRANCH_FORMAT` 末尾追加 `%(objectname)`，`parseBranchList` 多输出 `hash`（完整哈希）——
+    提交树列靠它把分支标签钉到提交上（短哈希在同仓库内也可匹配，作为回退）。
+  - `lib/client.js`：
+    - Log 从 `<table>` 改为 **div 版表格**（`S.thead/S.tr/S.th/S.td`），因为表格列宽无法既固定又逐列拖动；
+      列顺序 时间 / 提交树 / Message / Author / Commit。
+    - `GraphCell`：泳道线 + 节点 + **该提交上的全部分支标签**（本地绿框、远程蓝框、HEAD 分支加粗；`origin/HEAD` 跳过），
+      列宽由 `logGraphWidth()` 按标签内容估算（`glyphWidth` 中文按 10.5px、ASCII 6.1px），钳制 64–300px。
+    - `ResizeHandle`：pointer capture 拖动列宽，起始宽度量父单元格，不挂 window 监听；
+      `resizeColumn` 按 `LOG_LIMITS`（92–360 / 120–900 / 60–280 / 64–220）钳制；
+      Message 列默认吃剩余宽度（`msgAuto`），被拖动后转固定宽度，总宽超出即横向滚动。
+    - Commit 列短哈希可点即复制（`navigator.clipboard` → 兜底 `textarea + execCommand`），
+      顶部提示条回显 2 秒后自动消失（`flash()`，`notice` 由字符串改为 `{text,bad}`）；提交详情里的完整哈希同样可点。
+  - `scripts/verify-host.mjs`：新增「分支完整哈希」与「snapshot 分支标签可定位提交」两条断言 → **23 通过 / 0 失败**。
+  - **动态预览机制重做**：新增 `scripts/preview-check.mjs`（同构 node:vm 复现动态沙箱）；
+    动态包 `gitvcs-3` 的 `pkg-8`/`pkg-9` 改为**装载器**（读磁盘真实源码再编译运行），预览恒等于当前源码。
+- **踩坑**（已写入 LESSONS.md）：
+  - 宿主动态沙箱是全新 `node:vm` 上下文：**没有 `AbortSignal`**（也没有 `AbortController`/`setTimeout`/`fetch`/`require`/`process`），
+    真实 host 半区一进去每个端点都 `AbortSignal is not defined` → 全部回 `git-vcs/internal`；
+    装载器用鸭子类型信号（`aborted`/`addEventListener`/`removeEventListener`，超时走 `ctx.timeout`）顶替后全通。
+  - 动态通道返回值要过 host-runner 的 `cloneJson` 无损检查，桥上加自查并把坏值换成带端点名的干净错误码。
+- **验证**：`node --check` 两半区通过；`validate-plugin.mjs` 0 ERROR / 0 WARN；`verify-host.mjs` 23/23；`preview-check.mjs` 全通过。
+- **Git commit**：本轮提交（Log 改版）。

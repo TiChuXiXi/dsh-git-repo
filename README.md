@@ -83,10 +83,17 @@ node scripts\verify-host.mjs D:\zxh\code\git-plugin
 - **Local Changes**：按「冲突 / 已暂存 / 已修改 / 未跟踪」分组，行内状态字母（蓝=修改、绿=新增、
   灰=删除、红=冲突），选中行后可暂存 / 取消暂存 / 回滚；**差异默认不显示**，点文件才在右侧展开，右上角 `×` 关闭
 - **提交区**：提交信息、Amend（`allowDangerous` 控制）、Commit（提交已暂存文件；`allowWrite` 关闭时禁用）
-- **Log**：首列是无标题的**连线列**（单轨竖线 + 节点，HEAD 实心，行间无分割线），
-  后四列为 Author / Date / Commit / Message；**提交详情默认不显示**，点条目才展开，
-  详情内含 Revert / Cherry-Pick / Reset --soft / Reset --hard、**「新分支名」→ 基于该提交建分支（不切换）**、
-  变更文件与 patch，右上角 `×` 关闭
+- **Log**（列顺序对齐 IDEA：**时间 · 提交树 · Message · Author · Commit**）：
+  - **提交树列**：单轨竖线 + 节点（HEAD 实心，行间无分割线），节点右侧标出**所有指向该提交的分支标签**——
+    本地分支（绿框，当前 HEAD 分支加粗）、远程分支（蓝框，`origin/HEAD` 符号引用跳过），
+    一眼看出每个分支停在哪次提交。该列宽度按标签内容**自适应**（64–300px）且**不可拖动**。
+  - **Commit 列**：显示短哈希，**直接点击短哈希即复制完整提交 ID**（无独立按钮），
+    复制结果在顶部提示条回显（2 秒后自动消失）；提交详情里的完整哈希同样可点。
+  - **列宽**：时间 / Message / Author / Commit 四列表头右侧有拖动手柄（`col-resize`，pointer capture，
+    不依赖 window 监听），拖动范围各自钳制（92–360 / 120–900 / 60–280 / 64–220px）；
+    Message 列默认吃掉剩余宽度，被拖动后改为固定宽度，总宽超出面板即横向滚动。
+  - **提交详情默认不显示**，点条目才展开，详情内含 Revert / Cherry-Pick / Reset --soft / Reset --hard、
+    **「新分支名」→ 基于该提交建分支（不切换）**、变更文件与 patch，右上角 `×` 关闭。
 - **Branches**：本地 / 远程分支（当前分支高亮），切换、合并、删除，以及「新建并切换」
 - **Remotes**：`git remote -v` 的全部远程与 fetch / push 地址；顶部表单可填**名字 + URL（+ 可选 push URL）→ Add Remote**，
   每个远程行有 **Remove** 危险按钮（点击走内联二次确认）。均受 `allowWrite` 门禁控制。
@@ -140,8 +147,8 @@ node scripts\verify-host.mjs D:\zxh\code\git-plugin
 
 ## 已知限制（v1）
 
-- 历史只列当前分支（`--all` 需手工改调用）；首列的连线列是**单轨**图形（一条线 + 节点），
-  不是多分支 lane 的提交图。
+- 历史只列当前分支（`--all` 需手工改调用）；提交树列是**单轨**图形（一条线 + 节点），
+  不是多分支 lane 的彩色提交图——分支信息通过**节点右侧的分支标签**表达。
 - 差异视图是统一 diff 文本，没有并排 diff、没有按 hunk/行勾选提交（Partial Commit）。
 - Remotes 页增删远程后不会自动 fetch：track 关系已写进 `.git/config`，是否抓取由用户在工具栏点 Fetch。
 - 没有 changelist 分组、没有 Shelf、没有多 VCS root、没有编辑器 gutter 标记（DSH 无编辑器面板可挂）。
@@ -156,16 +163,22 @@ dsh plugin --profile web remove dsh-git-vcs
 
 ## 动态热加载验证版（临时，不落盘）
 
-在插件尚未装进 profile（跨盘符坏 junction）时，用 DSH 的动态 Cordis 插件机制做了一次**等价移植**，
-先验证右侧栏 tab 机制、host git 通路与 UI 手感，不作为交付形态：
+在插件尚未装进 profile（跨盘符坏 junction）时，用 DSH 的动态 Cordis 插件机制做**真机预览**：
 
-- 动态插件 `gitvc-1`（`pkg-1` → `pkg-4`）：host 半区用 `ctx.subprocess` 跑同一套 git argv 语义的端点，
-  客户端半区照抄两阶段注册（`sidebarRightTabs.register` + `sidebar.right.pane.tab`）。
-- 与正式版的差异：配置硬编码（`allowWrite=true` / `allowDangerous=true` / **`allowPush=false`**），
-  没有 `repoRoot` 限定、没有 `consoleLimit` / `timeoutMs` 配置项，也没有走 `ctx.connection` 通道
-  （改用 Package 私有 `harness.handle` / `host.call`）；`dsh` 进程重启即消失。
-- 动态版这四轮迭代（性能与并发、Log 列错位与图形列、详情可关、按提交建分支、Remotes）
-  **已同步回本包的 `index.js` / `lib/client.js`**；动态版只是当时的分阶段验证载体，
-  真正要装、要长期用的仍是本包。
+- 动态插件 `gitvcs-3`：
+  - `pkg-1` → `pkg-7`：把 host / client 语义**逐份手抄**成动态包（每次改 UI 都要重抄一遍，成本高且容易与源码漂移）。
+  - `pkg-8` 起改为**装载器**：动态包本身只有几十行，`git-vcs-boot` 时从磁盘读 `index.js`，
+    去掉 ESM 语法、把 `ctx.connection.rpc.handle('/git-vcs', …)` 接到 `harness.handle`，
+    再用 `new Function` 编译执行；`git-vcs-source` 把 `lib/client.js` 原文交给浏览器，
+    浏览器侧用临时替换的 `globalThis.__ModuleLoader__` 垫片捕获闭包工厂再运行。
+    **预览从此恒等于当前源码**，改完只要 `cordis_run mode:"run"` 重启即加载最新代码。
+  - `pkg-9`：补上 vm 沙箱缺失的全局——沙箱上下文只有 ECMAScript 内建，**没有 `AbortSignal`**，
+    真实代码的 `AbortSignal.timeout/any` 会 `ReferenceError`，导致每个端点都回 `git-vcs/internal`；
+    现在用鸭子类型信号（`aborted` / `addEventListener` / `removeEventListener`，超时走 `ctx.timeout`）顶替。
+- 与正式版的差异：配置用默认值（`allowPush=false`），RPC 走包内 `harness.handle` / `host.call`
+  （正式版走 `ctx.connection.rpc`），客户端 ctx 声明里去掉 `connection`；`dsh` 进程重启即消失。
 - 结论口径：动态版能验证 UI 与端点语义，**不能**验证 `dsh.client` 半区的闭包工厂产物格式——
   那一步仍必须走上面的 junction 修法 + `dsh plugin --profile web install`。
+
+离线自检（不需要真机）：`node .opencode/preview-check.mjs` 会在与动态沙箱同构的 `node:vm`
+上下文里装载真实 host 半区，并按 host-runner 的 cloneJson 规则校验每个端点的信封是否无损 JSON。

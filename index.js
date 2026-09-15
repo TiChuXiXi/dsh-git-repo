@@ -210,7 +210,8 @@ function parseCommitList(stdout) {
 }
 
 const LOG_FORMAT = '%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%P%x1f%s%x1f%b%x1e'
-const BRANCH_FORMAT = '%(refname)%1f%(refname:short)%1f%(objectname:short)%1f%(upstream:short)%1f%(upstream:track,nobracket)%1f%(committerdate:iso-strict)%1f%(subject)'
+// 末段 %(objectname) 是完整哈希：Log 的提交树列靠它把「分支标签」钉到对应提交上。
+const BRANCH_FORMAT = '%(refname)%1f%(refname:short)%1f%(objectname:short)%1f%(upstream:short)%1f%(upstream:track,nobracket)%1f%(committerdate:iso-strict)%1f%(subject)%1f%(objectname)'
 const STASH_FORMAT = '%gd%x1f%H%x1f%ad%x1f%s%x1e'
 /** for-each-ref 一次同时取本地与远程分支。 */
 const REF_SCOPES = ['refs/heads', 'refs/remotes']
@@ -234,6 +235,7 @@ function parseBranchList(stdout) {
       behind: behind === null ? 0 : Number(behind[1]),
       date: parts[5],
       subject: parts[6],
+      hash: parts[7] ?? '',
       kind: parts[0].startsWith('refs/heads/') ? 'local' : 'remote',
     }
     if (row.kind === 'local') local.push(row)
