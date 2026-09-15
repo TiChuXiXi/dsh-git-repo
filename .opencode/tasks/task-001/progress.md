@@ -381,3 +381,27 @@
 7. **待用户操作**：重启 `dsh web` 让 profile 生效（之后面板走 npm 安装的副本，
    改本地代码不再即时生效 —— 要再切回本地开发就 `dsh plugin --profile web add D:\zxh\code\git-plugin`）。
 
+### 2026-09-15（向 awesome-dsh-plugin 投稿 → PR #5154）
+
+- **机制**：该列表的 README 由脚本生成，投稿 = 在 `data/plugins/` 加**一个**文件
+  `<owner>__<repo>.yml`（一个 PR 最多 3 条；条目只允许 `url` / `name` / `category` / `description`
+  可选 `tarball`，**手写 `npm:` 会被校验拒绝**；描述含 `: ` 必须加引号）。
+- **门槛对照**：`package.json` 声明 `dsh.bundle` ✅（CI 最常见的拒因是只声明 `dsh.client`）；
+  仓库已有 `dsh-plugin` topic ✅；真实可用代码 + 活跃维护 ✅；npm 包 `repository` 已指回本仓库
+  （市场会自动关联下载量，yml 里不写任何 npm 字段）。唯一未达标的是**仓库满 1 天**：
+  created `2026-09-14T11:12:17Z`，门槛时间 `2026-09-15T11:12:17Z`；CI 对这条的文案是
+  "nothing to do: this check re-runs by itself and should clear in about 1h"，即不必重提交。
+- **分类与措辞**：`category: git`。分类里已有 `a792883583/dsh-git-panel`、`H2O-MERO/dsh-git-sidebar`、
+  `dd2673/dsh-wending-git-workbench`、`enoughpower/dsh-git-graph` 等近似项，评审会查重复，
+  所以描述刻意落在差异点：IDEA 式整体工具窗、**按文件勾选提交**、**带凭据兜底的推送**、git 命令流水。
+- **令牌坑**：`GH_TOKEN`（`github_pat_…` 细粒度）能 fork、建分支、写文件，但**开 PR 403**
+  （`Resource not accessible by personal access token`）；改用 `~/.git-credentials` 里的 `gho_` OAuth
+  令牌（`x-oauth-scopes: gist, repo, workflow`）才成功。
+- **结果**：**PR #5154** <https://github.com/awesome-dsh-plugin/awesome-dsh-plugin/pull/5154> ——
+  1 commit / 1 file（`data/plugins/TiChuXiXi__dsh-git-vcs.yml`，+6）→ CI `PR check` 已在跑。
+- **脚本（在 `.gitignore` 覆盖的 `.npm-cache/` 下）**：`file-pr.mjs`（fork + 分支 + 写文件）、
+  `open-pr.mjs`（开 PR）、`poll-ci.mjs`（轮询 CI 结论写到 `pr-check-result.txt`）、`awesome-entry.yml`。
+- **后续**：PR 合并后把 awesome badge 挂到 README；截图可另加 `screenshots.json`（1–8 张相对路径，
+  放本仓库、以后再改不必再提 PR）。
+
+
