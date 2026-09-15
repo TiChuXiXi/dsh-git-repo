@@ -167,3 +167,18 @@
     右键行同时高亮该行；面板底部加了"提交行右键打开操作菜单"的提示。
 - **验证**：`node --check` 通过；`verify-host.mjs` 27/27；`preview-check.mjs` 全通过；`validate-plugin.mjs` 0 ERROR / 0 WARN；
   预览 `gitvcs-3/pkg-9` 已重启（run-15）。
+
+### 2026-09-15（排查「列表说改了、差异却是空」→ 修未跟踪文件差异缺失）
+
+- **用户问题**：面板里 `client.js` 显示已修改，点开却没有差异内容，怀疑插件解析错。
+- **定性结论**：文件确实没有改动（已在 `cf35637` 提交，`git status --porcelain=v2` 为空，LF 行尾无 CRLF 问题）。
+  现象成因是**数据来源不同步**：列表来自快照（面板不监听文件系统、`autoRefreshSeconds` 默认 0），差异是点击时实时拉；
+  我在 shell 里提交代码后面板仍持着旧快照。
+- **顺带修掉一个真 bug**：`diff` 请求没转发 `untracked`，导致**未跟踪文件点开永远是"无差异内容"**
+  （未跟踪文件不在 index 里，普通 `git diff -- path` 恒为空，host 的 `--no-index` 分支从未被走通）。
+- **改动**：
+  - `lib/client.js`：diff effect 带上 `untracked`；忽略条目不发请求（显示"命中 .gitignore 的文件没有可展示的差异"）；
+    tracked 条目 diff 为空时显示"列表可能已过期，点 Refresh 重新读取"；差异标题区分 已暂存 / 未跟踪的新文件 / 已忽略 / 工作区。
+  - `scripts/verify-host.mjs`：新增 3 条回归断言（status 认出未跟踪、普通 diff 为空、`untracked=true` 拿到新文件差异）→ **30 通过 / 0 失败**。
+  - `scripts/status-probe.mjs`：新增常驻探针（用插件自己的 status/diff 打印条目与三种 diff 长度）。
+- **验证**：`node --check` 通过；`verify-host.mjs` 30/30；`preview-check.mjs` 全通过；预览 `gitvcs-3/pkg-9` 已重启（run-16）。

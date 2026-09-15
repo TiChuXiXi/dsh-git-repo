@@ -44,3 +44,5 @@
 | 2026-09-15 | 关闭菜单用 `document` 的 `mousedown` + `keydown(Escape)` 监听（`useEffect` 内注册并按需清理），菜单容器自身 `onMouseDown` 里 `stopPropagation` | 面板内点空白就关是菜单的基本预期；React 的 synthetic `stopPropagation` 会调用原生 `stopPropagation`，所以文档级监听不会在菜单内部误触发 |
 | 2026-09-15 | 菜单/子菜单坐标全部换算成**面板根相对坐标**（`rootRef.getBoundingClientRect()`），并用 `MENU_WIDTH` 估算宽度做夹取与左翻 | 菜单挂在面板根上（`position:relative`）而不是滚动容器里，避免被 `overflow` 裁剪；根相对坐标是唯一与滚动位置无关的坐标系 |
 | 2026-09-15 | 右键点「基于此提交新建分支…」→ 打开详情 + `focusBranch` 标志，`useEffect` 里对 `branchRef` 调 `focus()` | 菜单里没法输分支名；把输入框聚焦比弹 prompt 更符合面板语义，也不需要额外对话框组件 |
+| 2026-09-15 | `diff` 请求把选中行的分组语义完整转发（`staged` + `untracked`），并新增 `scripts/status-probe.mjs` 常驻排查工具 | 未跟踪文件不在 index 里，普通 `git diff -- <path>` 恒为空 → 必须在 `untracked=true` 时走 host 的 `--no-index` 分支；探针用插件自己的 status/diff 对当前工作区，把"列表有它但差异为空"一次性定性（文件真改没改 / 转发缺失） |
+| 2026-09-15 | 命中 `.gitignore` 的条目不再发 diff 请求，直接显示"没有可展示的差异"；tracked 条目 diff 为空时显示"列表可能已过期，点 Refresh" | 忽略文件本来就没有可看差异，发请求只是白花一次 git 进程；而"列表来自快照、差异实时拉"这一组合在面板外改动（如我在 shell 里提交）时会自然出现，必须用文案解释，否则看起来像解析 bug |

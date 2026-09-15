@@ -7,7 +7,7 @@
  * 注意：沙箱下 Node 抓子进程输出不能用管道（EPERM），这里统一用文件描述符重定向。
  */
 import { spawn, spawnSync } from 'node:child_process'
-import { mkdtempSync, openSync, closeSync, readFileSync, rmSync } from 'node:fs'
+import { mkdtempSync, openSync, closeSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join, resolve } from 'node:path'
 import { apply } from '../index.js'
@@ -279,6 +279,29 @@ await check('remote/remove 正常', 'remote/remove', { cwd: remoteScratch, name:
 await check('remote/list 验证 remove', 'remote/list', { cwd: remoteScratch }, (value) => {
   const hit = Array.isArray(value.remotes) ? value.remotes.find((r) => r.name === 'test-origin') : undefined
   return hit === undefined ? undefined : '删除远程仍出现在 list 中'
+})
+
+/* ------------------------------------------------- 未跟踪文件的差异（回归）
+ * 未跟踪文件不在 index 里，`git diff -- <path>` 恒为空，必须走 host 的 --no-index 分支
+ * （客户端要把 untracked 一起转发）。这里把这条链路钉死，避免再出现"列表有它、差异却是空"。
+ */
+writeFileSync(join(remoteScratch, 'brand-new.txt'), '第一行\n第二行\n', 'utf8')
+
+await check('status 认出未跟踪文件', 'status', { cwd: remoteScratch }, (value) => {
+  const hit = Array.isArray(value.entries) ? value.entries.find((entry) => entry.path === 'brand-new.txt') : undefined
+  if (hit === undefined) return '未跟踪文件没出现在 status 里'
+  return hit.untracked === true ? undefined : `untracked 标记缺失（${JSON.stringify(hit)}）`
+})
+
+await check('未跟踪文件：普通 diff 为空（因此必须转发 untracked）', 'diff', { cwd: remoteScratch, path: 'brand-new.txt' }, (value) => (
+  value.patch === '' ? undefined : `普通 diff 竟然非空（${value.patch.length} 字节），说明测试前提已变`
+))
+
+await check('未跟踪文件：untracked=true 拿到新文件差异', 'diff', { cwd: remoteScratch, path: 'brand-new.txt', untracked: true }, (value) => {
+  if (typeof value.patch !== 'string' || value.patch === '') return 'patch 为空'
+  if (value.patch.includes('new file mode') === false) return 'patch 不像新文件差异'
+  if (value.patch.includes('第二行') === false) return 'patch 没带上文件内容'
+  return undefined
 })
 
 rmSync(remoteScratch, { recursive: true, force: true })

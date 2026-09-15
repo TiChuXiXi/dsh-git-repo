@@ -46,6 +46,8 @@
 | 日期 | 错误做法 ❌ | 正确做法 ✅ | 原因 / 后果 | 关联文件/模块 |
 |------|------------|------------|-------------|---------------|
 | 2026-09-14 | 远端已存在自动生成的 `Initial commit`（仅 LICENSE）时，直接 `git push` 而不先比对历史 | push 前先 `git fetch origin` + `git rev-list --left-right --count origin/main...main`；无共同祖先时用 `git merge origin/main --allow-unrelated-histories`（本例零冲突，保住远端 LICENSE）再推，**不要**未经确认 force push | 分叉历史下 push 必被拒（non-fast-forward）；force push 会丢掉远端文件 | `git merge`、`LICENSE` |
+| 2026-09-15 | 客户端只把 `staged` 转发给 `diff` 端点，忘了 `untracked` | 差异请求要把选中行所属分组的语义完整带上（`staged` / `untracked`）：未跟踪文件不在 index 里，`git diff -- <path>` **恒为空**，只有 host 的 `--no-index` 分支能给出"新文件"差异 | 未跟踪文件在列表里有条目、点开永远显示"无差异内容"，且 host 里那条 `--no-index` 分支从未被真正走通（自检只测了普通 diff，所以全绿） | `lib/client.js`（diff effect）、`scripts/verify-host.mjs`（未跟踪回归） |
+| 2026-09-15 | 把"列表说改了、差异却是空"直接当成解析 bug 去查 | 先分清两个数据来源：**列表来自快照**（`repo/snapshot`，面板不监听文件系统、自动刷新默认关闭），**差异是点击时实时拉**的。用 `git status --porcelain=v2` + 插件自己的 `status/diff`（`scripts/status-probe.mjs`）对一次即可定性：文件真没改动 → 是快照过期；文件确有改动而差异为空 → 才查转发/解析 | 面板外（我在 shell 里）提交代码后，旧快照仍列着该文件，点开却是空 diff —— 看起来像插件解析坏了，实际是"列表过期 + 差异实时"的正常组合。UI 上补了明确文案，避免再被误判 | `scripts/status-probe.mjs`、`lib/client.js`（差异区文案） |
 
 ### 架构/设计 规范
 

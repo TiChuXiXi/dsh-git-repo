@@ -81,7 +81,10 @@ node scripts\verify-host.mjs D:\zxh\code\git-plugin
   Update Project（pull --no-edit）、Push（仅 `allowPush=true` 时可用）
 - **Tab**：Local Changes / Log / Console / Branches / Remotes / Stash
 - **Local Changes**：按「冲突 / 已暂存 / 已修改 / 未跟踪」分组，行内状态字母（蓝=修改、绿=新增、
-  灰=删除、红=冲突），选中行后可暂存 / 取消暂存 / 回滚；**差异默认不显示**，点文件才在右侧展开，右上角 `×` 关闭
+  灰=删除、红=冲突），选中行后可暂存 / 取消暂存 / 回滚；**差异默认不显示**，点文件才在右侧展开，右上角 `×` 关闭。
+  差异按行所属分组取：已暂存组走 `diff --cached`、其余走工作区 `diff`；**未跟踪文件必须带 `untracked=true`**
+  （未跟踪文件不在 index 里，普通 `git diff -- <path>` 恒为空，只有 host 的 `--no-index` 分支拿得到"新文件"差异）；
+  命中 `.gitignore` 的文件不发请求，直接说明没有可展示的差异。
 - **提交区**：提交信息、Amend（`allowDangerous` 控制）、Commit（提交已暂存文件；`allowWrite` 关闭时禁用）
 - **Log**（列顺序对齐 IDEA：**时间 · 提交树 · Message · Author · Commit**）：
   - **提交树列**：本行正中的圆点 + 贯穿整行的连线（圆点内部不画线，上下两段正好接到圆环外沿，
@@ -202,5 +205,12 @@ dsh plugin --profile web remove dsh-git-vcs
 - 结论口径：动态版能验证 UI 与端点语义，**不能**验证 `dsh.client` 半区的闭包工厂产物格式——
   那一步仍必须走上面的 junction 修法 + `dsh plugin --profile web install`。
 
-离线自检（不需要真机）：`node .opencode/preview-check.mjs` 会在与动态沙箱同构的 `node:vm`
+离线自检（不需要真机）：`node scripts/preview-check.mjs` 会在与动态沙箱同构的 `node:vm`
 上下文里装载真实 host 半区，并按 host-runner 的 cloneJson 规则校验每个端点的信封是否无损 JSON。
+
+其余自检脚本：
+
+- `node scripts/verify-host.mjs [仓库]`：宿主域内跑只读端点 + 错误码门禁 + 临时仓库写操作（30 条断言）。
+- `node scripts/status-probe.mjs [仓库]`：用插件自己的 `status` / `diff` 读当前工作区，
+  逐条打印 index/worktree 标记与三种 diff 的长度 —— 用于排查「列表说改了、差异却是空」
+  （先确认是解析问题还是文件真的没改动）。
