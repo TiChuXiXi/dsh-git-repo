@@ -200,7 +200,7 @@
 ### 2026-09-15（右键菜单加推送）
 
 - **需求**：右键菜单里加推送功能。
-- **实现**：commitMenuItems 新增「远程」分组（排在「修改历史（危险）」之前）——「推送当前分支（Push）」git push（hint 显示 upstream），epo.upstream === '' && 非分离 HEAD 时追加「推送并设置 upstream」→ push {setUpstream:true, branch}（host 走 `--set-upstream origin <branch>`）。
+- **实现**：commitMenuItems 新增「远程」分组（排在「修改历史（危险）」之前）——「推送当前分支（Push）」`git push`（hint 显示 upstream），`repo.upstream === '' && 非分离 HEAD` 时追加「推送并设置 upstream」→ `push {setUpstream:true, branch}`（host 走 `--set-upstream origin <branch>`）。<br>**注**：本轮的菜单推送在下一轮已按用户要求**迁移到 Branches 页**，提交右键菜单不再有推送项。
 - **门禁**：与工具栏一致 `allowPush !== true` 时置灰并给出悬停原因（配置未读到 / allowPush=false）；分离 HEAD 下推送置灰。
 - **验证**：`node --check` 通过；`verify-host.mjs` 30/30；预览 `gitvcs-3/pkg-9` 已重启（run-19）。
 

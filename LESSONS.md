@@ -83,6 +83,7 @@
 | 2026-09-14 | 插件在 D: 盘、profile 在 C: 盘时直接 `dsh plugin add <插件目录>`，没先确认 pnpm 能否算出相对路径 | 跨盘符时不要指望 `link:`：直接 `cmd /c mklink /J <profile>\node_modules\<pkg> <插件绝对路径>`，再 `dsh plugin --profile web install` 让 dsh 对账 bundles；或把插件放到与 profile 同盘 | pnpm 生成目标被拼错的坏 junction → dsh 判定 `declares no dsh.bundle`，插件只当普通依赖装、永不进层；profile 留下半装状态需手工清理 | `README.md`「跨盘符安装坑」、`~/.dsh/profiles/web` |
 | 2026-09-14 | 用户说"先写好、不用着急安装验证"之后，仍在推进安装与提权 | 用户要求先写代码时，安装/提权/真机验证一律停手，把命令写进 README 交给用户执行 | 提权被拒 + 环境留下坏链接，多花一轮清理；打断用户的节奏 | `README.md` 安装章节 |
 | 2026-09-14 | 在 DSH 沙箱内直接 `git push`，把失败当成 token 失效/网络问题 | 沙箱下 git 的凭据助手全部经 msys `sh -c` 启动，而 `sh.exe` 建不了信号管道（`couldn't create signal pipe, Win32 error 5`）→ 助手永远拿不到凭据、交互输入也不可用。两条出路：①提权到 `danger-full-access` 执行；②绕开助手：`git -c http.sslBackend=openssl push <URL 内嵌凭据> main:main`。另：`http.sslBackend=schannel` 在沙箱内会 `SEC_E_NO_CREDENTIALS`，**必须换 openssl** 后端 | 不换后端 push 直接 `fatal: unable to access ... schannel: AcquireCredentialsHandle failed`；不绕开助手则 `fatal: could not read Username`；换 openssl + URL 内嵌凭据后一次通过 | `git push`、`~/.git-credentials`、`origin`（github.com/TiChuXiXi/dsh-git-repo） |
+| 2026-09-15 | 用 PowerShell `Add-Content -Value "…含 Markdown 反引号…"` 写记忆文件 | PowerShell 双引号串里**反引号是转义符**：`` `r `` 变成 CR（字符 r 直接消失），`` `p `` 之类只吃掉反引号，于是 `repo.upstream` 变 `epo.upstream`、`refs/remotes` 变 `efs/remotes`，表格行里还塞进裸 CR 把行拆断。写含反引号/反斜杠的 Markdown 一律用**文件工具（write/edit）**，或单引号 here-string `@'…'@` | 记忆文件里的技术细节被静默改错（丢字符 + 断行），事后极难发现；本次靠 `Select-String 'epo\.|efs/'` + 裸 CR 扫描才捞回来 | `.opencode/tasks/**`、`LESSONS.md`、PowerShell 调用 |
 
 ---
 
