@@ -63,6 +63,8 @@
 | 2026-09-15 | 只靠 `verify-host.mjs`（宿主域内直接调 handler）判断端点是否可用 | 动态通道的返回值要过 host-runner 的 `cloneJson` 无损检查（无 `undefined`、无类实例、无 `-0`/非有限数）；写一个**同构 `node:vm` 复现**脚本，把真实 half 装进只有沙箱全局的上下文里跑一遍端点并自查 | 这类问题在宿主域里永远不复现，只能在真机面板上以"host.call 失败"的形式暴露，定位要来回好几轮 | `scripts/preview-check.mjs`、`index.js`、`lib/client.js` |
 | 2026-09-15 | 复制/操作反馈做成 flex 列里的普通提示条（`flex: none` 的一段 div） | 提示条改成**绝对定位的浮动 toast**（`position: absolute` + 面板根 `position: relative` + `pointerEvents: none`），出现与消失都不改变任何元素的框 | 提示条进出各顶动一次高度，整块内容上下跳一次，用户看到的是"页面抖动"；这类一次性反馈永远不要参与流式布局 | `lib/client.js`（S.toast / flash / notice 渲染位） |
 | 2026-09-15 | 提交树用「实心圆点 + 固定蓝色连线」，连线端点按写死的 13px 与圆点内边距对齐 | 圆点画成**空心**（该分支色系的深色圆环，HEAD 只是环加粗），连线用同色系浅色分上下两段：`calc(50% ± 半径)`，圆点内部不画线；两段各向相邻行**越界 1px** 并在单元格上放开 `overflow`（改由标签容器自己裁剪），行高含小数也不会露缝；颜色按分支名排序取模分配，无标签的提交从子提交继承 | 写死像素的端点在行高变化（标签换行）时与圆点错位、行与行之间露 1px 空隙；实心圆还会盖住连线 | `lib/client.js`（GraphCell / GRAPH_COLORS / logColorOf） |
+| 2026-09-15 | 用半透明色（`rgba(…,0.42)`）画连线，并靠"两段各越界 1px 重叠"消除接缝 | 重叠补偿只能用**不透明**色：半透明色重叠处会叠出更深的色带（用户看到"连接处颜色更深，像重复绘制"）。要么不重叠、要么把线色改成不透明浅色 | 半透明 + 1px 重叠 = 每行边界一条深 1px 的横带；视觉上像连线被反复描过 | `lib/client.js`（GRAPH_COLORS.line） |
+| 2026-09-15 | 用 `width/height + border + border-radius: 50%` 画 10px 的小圆点，并用 `top: 50% + marginTop: -5px` 定位 | 小圆点改用 **SVG `<circle>`**（`r=4` + `strokeWidth=2`，外沿正好 5px）：CSS 小圆环在非整数行高（标签换行导致行高为奇数）下会被栅格化出棱角；SVG 圆在任何位置都是圆。HEAD 用**填充**区分（`fill = ring`），不是加粗描边 | 用户反馈"圆看着不圆了，感觉有棱角" | `lib/client.js`（GraphCell / S.node） |
 
 ### 工具链/构建与环境 规范
 

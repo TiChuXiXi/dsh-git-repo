@@ -113,3 +113,14 @@
   - 提示：`S.notice/S.noticeBad` → `S.toast/S.toastBad`（`position:absolute` 右下角 + 根节点 `position:relative`
     + `pointerEvents:none`），复制与写操作耗时提示都不再参与流式布局。
 - **验证**：`node --check` 通过；`verify-host.mjs` 23/23；`preview-check.mjs` 全通过；动态预览 `gitvcs-3/pkg-9` 已重启（run-11）加载最新源码。
+
+### 2026-09-15（提交树第三轮：HEAD 实心 + SVG 真圆 + 连线不透明消除深色接缝）
+
+- **用户反馈**：① HEAD 要实心；② 圆看着不圆、有棱角；③ 每行连接线的连接处像被重复绘制、颜色更深。
+- **原因与修法**：
+  - ③ 是"半透明连线 + 1px 越界重叠"造成的：`rgba(...,0.42)` 在重叠区被叠两次 → 每行边界一条更深的横带。
+    `GRAPH_COLORS.line` 全部换成**不透明浅色 hex**，保留 1px 重叠消除接缝。
+  - ② 是 CSS `border-radius: 50%` 小圆环在非整数行高（标签换行使行高为奇数）下被栅格化出棱角。
+    圆点改为 **SVG `<circle cx=6 cy=6 r=4 stroke-width=2>`**（12px 画布，外沿半径 5px 正好接住两段连线）。
+  - ① HEAD 由"加粗描边"改为 **`fill = ring` 实心**；判定用 `repo.oid === item.hash`（拿不到时退回列表首行）。
+- **验证**：`node --check` 通过；`preview-check.mjs` 全通过；动态预览 `gitvcs-3/pkg-9` 已重启加载最新源码。
