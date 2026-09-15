@@ -350,3 +350,34 @@
   端点总数（29）、`init` 无 UI 入口这条限制。
 - **顺带**：`index.js` 文件头注释同步为"自注册 `webServer` 前缀路由"，并补上"行级 inject 也要写"的说明。
 - **验证**：`node --check index.js`、`verify-host.mjs`（45/45）、`preview-check.mjs`（全部通过）复跑仍绿。
+
+### 2026-09-15（发布 0.1.0：npm + GitHub Release + profile 切 registry）
+
+用户用 `/publish-dsh-plugin` 技能发起发布，全流程跑通：
+
+1. **前置检查**：`NPM_TOKEN` / `GH_TOKEN`（User 级）均可用；pnpm 在
+   `C:\Users\zdz20\AppData\Roaming\npm`；`npm view dsh-git-vcs` 404 = 包名可用；
+   确认 `npm whoami` = `tichuxixi`（需要**项目级 `.npmrc`** 才认令牌，否则 E401）。
+2. **包准备**：`package.json` 补 `repository` / `homepage` / `bugs`（指向重命名后的仓库）+
+   `publishConfig {access: public, registry: registry.npmjs.org}`；`.gitignore` 加 `.npmrc`；
+   README 安装章节改为「从 npm 安装（推荐）」，本地路径安装降级为开发调试，
+   跨盘符 junction 段标注为历史/本地开发才会遇到。
+3. **GitHub 仓库改名**：`dsh-git-repo` → **`dsh-git-vcs`**（API PATCH，用户选的方案：
+   保留已推送历史，只留一个同名仓库）；本地 `origin` URL 同步改，
+   并写入仓库级 `http.proxy` / `https.proxy`（以后 push 少写参数）。
+4. **npm 发布**：`npm publish --dry-run` 核对打包内容（**只有 6 个文件**：LICENSE / README.md /
+   cordis.patch.yml / index.js / lib/client.js / package.json，65.8 kB，`.npmrc` 与 `.npm-cache` 都不进包）
+   → 正式发布（带粒度令牌 + bypass 2FA，无 OTP 提示）→ registry 直查确认
+   `versions: [0.1.0]`、`dist-tags.latest = 0.1.0`、`maintainers: tichuxixi`。
+5. **push / tag / Release**：`main` 推到 `6ea1d3d`；注记 tag `v0.1.0`
+   （`git rev-parse v0.1.0^{commit}` = HEAD）；Release 用 Node fetch 建（HTTP **201**）：
+   <https://github.com/TiChuXiXi/dsh-git-vcs/releases/tag/v0.1.0>。
+6. **profile 切 registry**：`dsh plugin --profile web add dsh-git-vcs@0.1.0 --registry=https://registry.npmjs.org`
+   （必须带 `@版本`，否则 pnpm 认为"已是最新"不替换 spec）→ `dependencies` 从
+   `link:D:/zxh/code/git-plugin` 变为 **`0.1.0`**，`dsh.profile.bundles` 不变，
+   `node_modules/dsh-git-vcs` 从 junction 变成**真实目录**，安装副本的 README/index.js
+   与本地**逐字节一致**；`node --check` 两个半区通过，且 `import()` 安装副本拿到
+   `name=git-vcs` / `inject=[subprocess, connection, webServer]` / `apply=function`。
+7. **待用户操作**：重启 `dsh web` 让 profile 生效（之后面板走 npm 安装的副本，
+   改本地代码不再即时生效 —— 要再切回本地开发就 `dsh plugin --profile web add D:\zxh\code\git-plugin`）。
+
