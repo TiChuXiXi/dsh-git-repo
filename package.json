@@ -37,5 +37,17 @@
     "vcs",
     "web-ui"
   ],
-  "license": "MIT"
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TiChuXiXi/dsh-git-vcs.git"
+  },
+  "homepage": "https://github.com/TiChuXiXi/dsh-git-vcs#readme",
+  "bugs": {
+    "url": "https://github.com/TiChuXiXi/dsh-git-vcs/issues"
+  },
+  "publishConfig": {
+    "access": "public",
+    "registry": "https://registry.npmjs.org"
+  }
 }

@@ -8,7 +8,8 @@ Version Control 工具窗（`Alt+9`）与 Commit 工具窗（`Alt+0`）——本
 
 | 项目 | 值 |
 |------|-----|
-| 插件版本 | **`0.1.0`**（`package.json` 的 `version`；未发布到 npm，安装走本地路径/链接） |
+| 插件版本 | **`0.1.0`**（`package.json` 的 `version`，已发布到 npm：[dsh-git-vcs](https://www.npmjs.com/package/dsh-git-vcs)） |
+| 仓库 / Release | <https://github.com/TiChuXiXi/dsh-git-vcs>（tag `v0.1.0`） |
 | npm 包名 / 插件行 id | `dsh-git-vcs` / `git-vcs` |
 | 兼容的 DeepSeek Harness | **`@deepseek-ai/dsh` ≥ `0.1.5-rc.1`**（写在 `package.json` 的 `dsh.engines.dsh`；开发与验证版本就是 `0.1.5-rc.1`） |
 | 依赖的官方插件 | `@deepseek-ai/dsh-client-ui-sidebar-right`（客户端半区 `dsh.client.inject` 声明；随 web-app 分发，本机为 `0.1.5-rc.2`） |
@@ -78,15 +79,24 @@ Version Control 工具窗（`Alt+9`）与 Commit 工具窗（`Alt+0`）——本
 
 ## 安装
 
-### 1. 本地路径安装（开发态，推荐）
+### 1. 从 npm 安装（推荐）
 
 ```powershell
 $env:Path = "C:\Users\zdz20\AppData\Roaming\npm;" + $env:Path
-dsh plugin --profile web add D:\zxh\code\git-plugin
+dsh plugin --profile web add dsh-git-vcs
 dsh --profile web --dump-config | Select-String "dsh-git-vcs"   # 必须看到 "# == dsh-git-vcs" 层
 ```
 
-### 2. 改完代码怎么生效
+装具体版本用 `dsh plugin --profile web add dsh-git-vcs@0.1.0`（pnpm 对已存在的依赖会认为"已是最新"，
+只有带 `@版本` 才替换 spec）。本机 registry 是 npmmirror，必要时加 `--registry=https://registry.npmjs.org`。
+
+### 2. 本地路径安装（开发调试）
+
+```powershell
+dsh plugin --profile web add D:\zxh\code\git-plugin
+```
+
+### 3. 改完代码怎么生效
 
 | 改了哪里 | 生效方式 |
 |----------|----------|
@@ -100,7 +110,9 @@ dsh --profile web --dump-config | Select-String "dsh-git-vcs"   # 必须看到 "
 [dsh-git-vcs] RPC 通道已注册：/git-vcs
 ```
 
-### 3. 跨盘符安装坑（本机已踩到）
+### 4. 跨盘符安装坑（历史/本地开发才会遇到）
+
+> 只有「本地路径安装」（第 2 种）且插件目录与 profile 不同盘符时才会踩到；从 npm 安装不受影响。
 
 插件目录在 `D:`，profile 在 `C:\Users\zdz20\.dsh\profiles\web`。pnpm 对跨盘符的 `link:` / `file:`
 算不出相对路径，会生成**目标被拼错的坏 junction**；于是 dsh 的 bundle 对账读不到

@@ -24,6 +24,9 @@ Thumbs.db
 .env
 .env.local
 
+# npm 令牌（内容为 //registry.npmjs.org/:_authToken=${NPM_TOKEN}，绝不入库/入包）
+.npmrc
+
 # 动态插件打包中间产物（.opencode 下的临时文件）
 .opencode/*.txt
 .opencode/*.json
