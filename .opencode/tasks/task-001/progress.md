@@ -189,3 +189,10 @@
 - **根因**：dockkit 的 chip CSS —— 选中 / hover 时把 × 绝对定位在 `右缘 - 24px`，并对标题容器 `._tabTitle` 加 mask-image: linear-gradient(to right, black calc(100% - 30px), transparent calc(100% - 14px))`，用**渐隐吃掉标题尾部**给按钮让位；我们的标题组件没预留这段，于是渐隐压住最后一个字。
 - **修法**：`S.title` 加 `paddingRight: 32px` + `minWidth: 104px`（`boxSizing: border-box`）—— 内容 71px（图标 14 + gap 5 + 4 个 13px CJK ≈ 52）之后留出空白，渐隐落在空白上；chip 宽度随之增加（约 124px，未超 kit 的 max-width 170px）。
 - **验证**：`node --check` 通过；预览 `gitvcs-3/pkg-9` 已重启（run-17）。
+
+### 2026-09-15（刷新后残留的差异面板与操作条）
+
+- **用户反馈**：点开一个改动查看后按 Refresh，改动没了，但底部「暂存/回滚」操作条与右侧差异面板仍在。
+- **根因**：`selected` 只在点击时写入，快照刷新后没有复核，于是留下了指向已不存在条目的面板与按钮。
+- **修法**：新增选中项校验 effect（依赖 `[status, applied]`）——条目已不在 `entries()` 里就清空 `selected`/`patch`；条目只是换了分组（刚点暂存）则跟随到新分组；`ignored` 项不参与跟随。
+- **验证**：`node --check` 通过；`verify-host.mjs` 30/30；预览 `gitvcs-3/pkg-9` 已重启（run-18）。副作用行为需真机点一次确认（客户端逻辑，自检脚本覆盖不到）。

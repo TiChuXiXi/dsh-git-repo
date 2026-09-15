@@ -85,6 +85,8 @@ node scripts\verify-host.mjs D:\zxh\code\git-plugin
   差异按行所属分组取：已暂存组走 `diff --cached`、其余走工作区 `diff`；**未跟踪文件必须带 `untracked=true`**
   （未跟踪文件不在 index 里，普通 `git diff -- <path>` 恒为空，只有 host 的 `--no-index` 分支拿得到"新文件"差异）；
   命中 `.gitignore` 的文件不发请求，直接说明没有可展示的差异。
+  选中项会随快照校验：条目消失（文件被别处提交/回滚）即收起差异面板与底部操作条，条目只是换了分组（刚点了暂存）
+  则跟随到新分组，避免右侧继续显示已经不存在的差异。
 - **提交区**：提交信息、Amend（`allowDangerous` 控制）、Commit（提交已暂存文件；`allowWrite` 关闭时禁用）
 - **Log**（列顺序对齐 IDEA：**时间 · 提交树 · Message · Author · Commit**）：
   - **提交树列**：本行正中的圆点 + 贯穿整行的连线（圆点内部不画线，上下两段正好接到圆环外沿，

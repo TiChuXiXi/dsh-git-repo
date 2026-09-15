@@ -47,3 +47,4 @@
 | 2026-09-15 | `diff` 请求把选中行的分组语义完整转发（`staged` + `untracked`），并新增 `scripts/status-probe.mjs` 常驻排查工具 | 未跟踪文件不在 index 里，普通 `git diff -- <path>` 恒为空 → 必须在 `untracked=true` 时走 host 的 `--no-index` 分支；探针用插件自己的 status/diff 对当前工作区，把"列表有它但差异为空"一次性定性（文件真改没改 / 转发缺失） |
 | 2026-09-15 | 命中 `.gitignore` 的条目不再发 diff 请求，直接显示"没有可展示的差异"；tracked 条目 diff 为空时显示"列表可能已过期，点 Refresh" | 忽略文件本来就没有可看差异，发请求只是白花一次 git 进程；而"列表来自快照、差异实时拉"这一组合在面板外改动（如我在 shell 里提交）时会自然出现，必须用文案解释，否则看起来像解析 bug |
 | 2026-09-15 | tab 标题组件自带 `padding-right: 32px`（`min-width: 104px`）预留关闭按钮区 | dockkit 的 chip 用遮罩渐隐（标题容器最后 14-30px）给 × 让位，标题内容不预留就会被吃掉尾部；预留后 chip 也自然变宽（用户要的'再加宽'） |
+| 2026-09-15 | 新增选中项校验 effect（依赖 [status, applied]）：条目消失则清空 selected/patch，条目换分组则跟随（staged <-> worktree），ignored 项不参与跟随 | 列表与选中项都是从快照派生的 UI 状态，快照刷新后必须复核；否则会留下指向已不存在条目的差异面板与写操作按钮 |
