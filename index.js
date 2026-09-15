@@ -214,7 +214,11 @@ const LOG_FORMAT = '%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%P%x1f%s%x1f%b%x1e'
 // 再末段 %(symref) 非空表示这是符号引用（典型：refs/remotes/origin/HEAD，它的 %(refname:short)
 // 会是 "origin" 而不是 "origin/HEAD"），parseBranchList 会跳过它们。
 const BRANCH_FORMAT = '%(refname)%1f%(refname:short)%1f%(objectname:short)%1f%(upstream:short)%1f%(upstream:track,nobracket)%1f%(committerdate:iso-strict)%1f%(subject)%1f%(objectname)%1f%(symref)'
-const STASH_FORMAT = '%gd%x1f%H%x1f%ad%x1f%s%x1e'
+// 注意：**不要**用 %gd 当 stash 的引用。加了 --date=iso-strict 之后，%gd 会展开成
+// `stash@{2026-09-15T14:18:58+08:00}` 这种时间戳选择器，而 `git stash drop <这种 ref>` 会打印
+// "Dropped …" 并退出码 0 **却什么都不删**（同秒创建的两条 ref 还会完全一样）。
+// 所以这里只取哈希/日期/标题，ref 由 parseStashList 按列表下标合成 `stash@{n}`（列表是最新在前，与 git 的编号一致）。
+const STASH_FORMAT = '%H%x1f%ad%x1f%s%x1e'
 /** for-each-ref 一次同时取本地与远程分支。 */
 const REF_SCOPES = ['refs/heads', 'refs/remotes']
 
@@ -249,15 +253,24 @@ function parseBranchList(stdout) {
   return { local, remote }
 }
 
-/** 解析 `stash list --pretty=format:STASH_FORMAT` 的输出。 */
+/**
+ * 解析 `stash list --pretty=format:STASH_FORMAT` 的输出。
+ * ref 按列表下标合成 `stash@{n}`：`git stash list` 与 reflog 编号一致（最新 = stash@{0}），
+ * 比把 `%gd` 直接搬过来可靠（见 STASH_FORMAT 上的说明）。
+ */
 function parseStashList(stdout) {
   const stashes = []
   for (const chunk of stdout.split('\x1e')) {
     const text = chunk.replace(/^\n+/, '')
     if (text === '') continue
     const parts = text.split('\x1f')
-    if (parts.length < 4) continue
-    stashes.push({ ref: parts[0], hash: parts[1], date: parts[2], subject: parts[3] })
+    if (parts.length < 3) continue
+    stashes.push({
+      ref: `stash@{${stashes.length}}`,
+      hash: parts[0],
+      date: parts[1],
+      subject: parts[2],
+    })
   }
   return stashes
 }
@@ -491,6 +504,13 @@ export function apply(ctx, rawConfig) {
       throw new GitError('git-vcs/bad-request', `remote 非法：${raw}`)
     }
     return name
+  }
+
+  /** 取 stash 的引用：只接受 `stash@{n}` 或 40 位十六进制哈希（坏引用会让 git 静默什么都不做）。 */
+  function readStashRef(payload) {
+    const ref = readRef(payload, 'ref')
+    if (/^stash@\{\d+\}$/.test(ref) || /^[0-9a-f]{7,40}$/.test(ref)) return ref
+    throw new GitError('git-vcs/bad-request', `stash 引用非法：${ref}（应为 stash@{n} 或提交哈希）`)
   }
 
   function readRef(payload, key = 'ref') {
@@ -925,13 +945,30 @@ export function apply(ctx, rawConfig) {
         const args = ['stash', 'push']
         if (typeof payload?.message === 'string' && payload.message !== '') args.push('-m', payload.message)
         const result = gitOk(await runGit(args, { cwd: root, signal }))
-        return { stdout: result.stdout }
+        // 记录这次 push 后的最新引用，便于调用方确认（drop/pop 用 stash@{n} 编号）。
+        return { stdout: result.stdout, ref: 'stash@{0}' }
       }
       if (action === 'pop' || action === 'apply' || action === 'drop') {
-        const args = ['stash', action]
-        if (typeof payload?.ref === 'string' && payload.ref !== '') args.push(readRef(payload, 'ref'))
-        const result = gitOk(await runGit(args, { cwd: root, signal }))
-        return { stdout: result.stdout, stderr: result.stderr }
+        const ref = readStashRef(payload)
+        const countStashes = async () => {
+          const out = gitOk(await runGit(['stash', 'list', '--pretty=format:%H'], { cwd: root, signal })).stdout.trim()
+          return out === '' ? 0 : out.split('\n').length
+        }
+        const before = await countStashes()
+        const result = await runGit(['stash', action, ref], { cwd: root, signal })
+        gitOk(result)
+        const after = await countStashes()
+        // git 对过期/坏引用会打印 "Dropped …" 却什么都不删（退出码 0），必须核对条数才能把静默失败变成明确错误：
+        // apply 之后条数应不变；pop / drop 之后应恰好少一条。
+        const expectedAfter = action === 'apply' ? before : before - 1
+        if (after !== expectedAfter) {
+          throw new GitError(
+            'git-vcs/git-failed',
+            `git stash ${action} 没有生效：贮藏条数 ${before} → ${after}（应为 ${expectedAfter}），引用可能已过期：${ref}`,
+            { ref, before, after },
+          )
+        }
+        return { stdout: result.stdout, stderr: result.stderr, ref }
       }
       throw new GitError('git-vcs/bad-request', `未知的 stash action：${String(action)}`)
     },

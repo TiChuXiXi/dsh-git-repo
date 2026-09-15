@@ -79,9 +79,13 @@ node scripts\verify-host.mjs D:\zxh\code\git-plugin
 
 - **工具栏**：仓库路径（默认取会话工作目录）、当前分支（点击进分支页）、Refresh、Fetch、
   Update Project（pull --no-edit）、Push（仅 `allowPush=true` 时可用）
-- **Tab**：Local Changes / Log / Console / Branches / Remotes / Stash
+- **Tab**：Local Changes / Log / Console / Branches / Remotes / Stash（贮藏）
 - **Local Changes**：按「冲突 / 已暂存 / 已修改 / 未跟踪」分组，行内状态字母（蓝=修改、绿=新增、
   灰=删除、红=冲突），选中行后可暂存 / 取消暂存 / 回滚；**差异默认不显示**，点文件才在右侧展开，右上角 `×` 关闭。
+  > 两种"选择"在面板里是分开的、互不影响：**勾选框**决定本次提交包含哪些文件
+  > （提交走 `git commit -m <信息> -- <勾选的文件>`，pathspec 语义：忽略索引里其它内容）；
+  > **「暂存 / 取消暂存」**是 `git add` / `git restore --staged`，把改动放进或移出**索引（Index）**，
+  > 供你在终端或别的工具里按标准 git 工作流使用。`MM` 状态的文件会同时出现在「已暂存」和「已修改」两个分组里。
   差异按行所属分组取：已暂存组走 `diff --cached`、其余走工作区 `diff`；**未跟踪文件必须带 `untracked=true`**
   （未跟踪文件不在 index 里，普通 `git diff -- <path>` 恒为空，只有 host 的 `--no-index` 分支拿得到"新文件"差异）；
   命中 `.gitignore` 的文件不发请求，直接说明没有可展示的差异。
@@ -133,9 +137,16 @@ node scripts\verify-host.mjs D:\zxh\code\git-plugin
   顶部还有「新建并切换」。推送与工具栏 Push 同一道门禁（`allowPush`，默认关闭）。
 - **Remotes**：`git remote -v` 的全部远程与 fetch / push 地址；顶部表单可填**名字 + URL（+ 可选 push URL）→ Add Remote**，
   每个远程行有 **Remove** 危险按钮（点击走内联二次确认）。均受 `allowWrite` 门禁控制。
-- **Stash**：stash 列表与 push / pop / apply / drop
+- **Stash（贮藏）**：`git stash` 的入口 —— 把当前未提交的改动**整体收起来**、工作区回到干净状态，
+  之后用「应用（`apply`，保留记录）/ 弹出（`pop`，取回并删除记录）/ 删除（`drop`）」处理；
+  与 Local Changes 里的「暂存」不是一回事（那是 `git add` 放进索引）。
+  当前实现用 `git stash push [-m 说明]`，**不带 `-u`**：未跟踪的新文件不会被收走，会留在工作区。
+  列表里的引用是 **`stash@{n}` 数字选择器**（由列表下标合成，与 git 编号一致）——不能用 `%gd` 配
+  `--date=iso-strict`，那会生成 `stash@{2026-09-15T…}` 时间戳选择器，而 git 对它会打印 `Dropped …`、
+  退出码 0，**却什么也不删**；host 现在还会核对操作前后的贮藏条数，把这种静默失败变成明确错误。
 - **Console**：面板发起的每条 git 命令（argv、退出码、耗时、stderr、是否截断）
-- **底部状态栏**：仓库根、当前远程、改动数、上次操作耗时、命令条数；忙碌时显示进度条与阶段文案。
+- **底部状态栏**：**只在忙碌时出现**，显示当前阶段（读取仓库 / 暂存中 / 提交中 / 刷新列表…）——仓库路径在顶部输入框、
+  改动数在各分组标题、命令流水在 Console 页、单次操作耗时在完成 toast 里，不再重复显示。
   所有提示（写操作结果、复制反馈、**失败与 git 报错**）统一走右下角**浮动 toast**（绝对定位、不参与流式布局），
   不再有顶部错误横幅；失败的完整命令与 stderr 可在 Console 页回看。
 

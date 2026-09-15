@@ -222,10 +222,47 @@
 
 - **用户需求（第一部分）**：① 没有文件改动时不该能点 Commit（点了才报错不合适）；② 不再用顶部错误横幅，全部走 toast；③ 每行改动前加勾选框，只提交勾选的文件，一个都没勾时 Commit 不可点。第二部分（三态勾选 + hunk 级部分提交）要求先出方案。
 - **完成**：
-  - 错误提示：删掉 rror 状态与顶部横幅（连同 S.banner 样式），新增 eportError() → 右下角浮动 toast（6 秒；成功类提示仍是 2 秒），全部 7 处 setError(result.error) 改成 eportError。
+  - 错误提示：删掉 `error` 状态与顶部横幅（连同 `S.banner` 样式），新增 `reportError()` → 右下角浮动 toast（6 秒；成功类提示仍是 2 秒），全部 7 处 `setError(result.error)` 改成 `reportError`。
   - 提交勾选：checkedPaths（path → bool）+ selectNew（刷新后新出现的改动默认是否勾上）；行内自绘勾选框（点它 stopPropagation，不打开差异）；提交区加「全选 / 全不选」与 已选 x/y 个文件 · z 个已暂存 统计。
   - 提交门禁：canCommit = !busy && allowWrite && 有信息 && (amend || 勾选数>0)，悬停分别说明原因（写操作关闭 / 先填提交信息 / 工作区无可提交改动 / 没有勾选任何文件）；commit() 只把勾选的 paths 传给 host。
   - Amend 明确为「修补上一次提交，忽略勾选」，按钮文案里注明。
 - **第二部分方案**：写入 .opencode/tasks/task-001/plan-partial-commit.md（三态模型、hunk 选择、stage/hunks 端点、路线 A「提交=提交索引」、P1-P4 分阶段与工作量、需要用户拍板的 3 件事）。
-- **验证**：
-ode --check 通过；erify-host.mjs 34/34；preview-check.mjs 全通过；预览 gitvcs-3/pkg-9 已重启（run-22）。
+- **验证**：`node --check` 通过；`verify-host.mjs` 34/34；`preview-check.mjs` 全通过；预览 `gitvcs-3/pkg-9` 已重启（run-22）。
+
+### 2026-09-15（一轮 UI 打磨 + Stash 引用真 bug；用户边测边提，逐条改，最后统一提交）
+
+> 本轮用户全程在面板实测逐条反馈，改动**一直留在工作区未提交**（用户明确要求"不要自动提交，我要测"），
+> 最后由用户发话才提交。
+
+- **提交勾选与门禁**
+  - 删掉 `error` 状态与顶部错误横幅（含 `S.banner` 样式），新增 `reportError()` → 右下角浮动 toast（错误停 6 秒、成功 2 秒）。
+  - 每行改动前加自绘勾选框（`stopPropagation`，点它不打开差异）；`checkedPaths` + `selectNew`（新出现的改动默认勾上，手动取消会记住）；
+    提交区加「全选 / 全不选」「清空」与 `已选 x/y 个文件 · z 个已暂存`。
+  - `canCommit = !busy && allowWrite && 有信息 && (Amend || 勾选数 > 0)`，置灰时 title 说明原因；`commit()` 只把勾选的 paths 交给 host。
+  - 未勾选态"看不见"：原描边只有 22% 透明、13px，改成 65% 描边 + 淡底、14px。
+- **Stash（贮藏）**
+  - 与「暂存」区分：tab 保持英文 `Stash`，页内统一「贮藏」；按用户要求删掉顶部说明条与两处括号补充。
+  - `stash push` 成功后清空说明输入框，并加「清空」按钮。
+  - **真 bug**：`STASH_FORMAT` 用 `%gd` + `--date=iso-strict` → ref 变成 `stash@{2026-09-15T…}` 时间戳选择器；
+    git 对它打印 `Dropped …`、退出码 0 **却什么都不删**（同秒两条 ref 还完全一样），所以 pop/drop 都"没反应"、toast 还一直挂着。
+    修法：`STASH_FORMAT` 只取哈希/日期/标题，ref 由列表下标合成 `stash@{n}`；新增 `readStashRef` 校验；
+    pop/apply/drop 前后核对贮藏条数，不符即报 `git-vcs/git-failed`。
+- **toast 永不消失**：`run()` 直接 `setNotice` 没排定时器（改成 toast 之前它是常驻提示条，看不出来）→ 统一走 `flash()`。
+- **差异面板**
+  - 布局从右侧栏改为**上下结构**（列表在上、差异在下），顶边拖拽条调高，与提交详情**共用同一个高度状态**。
+  - 左侧加**行号槽**（上下文/新增用新文件行号，删除用旧侧行号，`@@`/文件头留空；`parseHunkHeader` 驱动）。
+  - 长行**默认换行**（`pre-wrap` + `break-all`，容器 `overflow-x: hidden`）：横向滚动条消失；底色改画在**整行**上
+    （原来画在行内 span 上，横向滚动露出的右侧没有红/绿）。
+  - `↑`/`↓` 改为**改动块**导航：目标是连续的 `+`/`-` 行（同一 hunk 内被上下文隔开的两处算两站）；
+    光标**按滚动位置实时算**（顶端滚到视口顶的最后一块；贴底时视口内可见的最后一块也算）；
+    页首 ↑ 置灰、滚动后再点不会跳回旧位置；高亮**只点亮左侧行号槽**（保留代码区红/绿）。
+  - 工具条加改动统计：`N 处改动` / 已定位时 `第 n/N 处改动`。
+- **其它 UI**
+  - 所有 Busy 提示的 `⏳` 换成 **SVG 圆弧 spinner** + `requestAnimationFrame` 旋转（不注入样式表、不押 SMIL 支持）。
+  - 输入框统一优化：`outline: none` 去掉默认黑焦点圈，新增 `TextInput` / `TextArea` 用状态模拟 `:focus`（蓝描边 + 淡底 + 柔光）；
+    Amend 复选框改回 `input[type=checkbox]` 并加 `accent-color`（批量替换时被误伤过）。
+  - Branches：本地分支行显示相对 upstream 的 `↑领先` / `↓落后`；去掉"当前分支"的选中背景（改行首 `*` + 绿色分支名），
+    行加 hover、光标改默认；页内说明条与页脚的多项说明按用户要求删除。
+  - 底部状态栏只保留忙碌阶段文案，空闲时不占位置。
+- **验证**：`node --check`（index.js / lib/client.js）通过；`validate-plugin.mjs` 0 ERROR / 0 WARN；
+  `verify-host.mjs` **39 通过 / 0 失败**；`preview-check.mjs` 全通过；动态预览 `gitvcs-3/pkg-9` 每轮重启（run-22 … run-37）由用户点验。

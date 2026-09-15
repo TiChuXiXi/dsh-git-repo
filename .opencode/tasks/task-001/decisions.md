@@ -52,3 +52,11 @@
 | 2026-09-15 | 推送入口从提交右键菜单**迁移到 Branches 页**（本地分支行内按钮）；host 的 push 强制显式 remote | 用户要求推送归属分支模块；另外原来 push {branch} 拼成 git push <branch>，git 会把分支名当仓库名，改为 git push <remote> <branch>（remote 取自该分支 upstream，缺省 origin），无 upstream 时按钮变「推送并设 upstream」走 --set-upstream |
 | 2026-09-15 | `BRANCH_FORMAT` 增加 `%(symref)`，`parseBranchList` 跳过符号引用 | `refs/remotes/origin/HEAD` 的 `%(refname:short)` 是 `origin`（不是 `origin/HEAD`），留在列表里会出现「origin + origin/main」两条远程分支，Log 的分支标签也会多一个假 origin |
 | 2026-09-15 | Branches 页去掉「当前分支」的选中背景，改用行首 `*` + 绿色加粗分支名；所有分支行加 hover（`hoverBranch` 状态），行样式 `cursor: default` | 用户反馈：本地 main 一直是"选中"高亮很怪、远程行没有 hover 却又是可点光标。只读列表不应有选中态，行不可点就不该给 pointer；hover 是唯一的行级反馈。`S.rowOn` 只留给 Local Changes 与 Log 这两处真实选中 |
+| 2026-09-15 | 提交区改为**勾选哪些文件就提交哪些**（`git commit -- <勾选的 paths>`），并加门禁：没有可提交改动 / 没勾选 / 没填信息时 Commit 置灰；错误提示全部改走右下角浮动 toast（删掉 `error` 状态与顶部横幅） | 用户要求：没改动时不该能点、点了才报错不合适；提示条在流内会顶动布局。pathspec 提交的语义是"提交这些文件的工作区内容、忽略索引里其它内容"，与勾选=提交范围一致 |
+| 2026-09-15 | `STASH_FORMAT` 不再用 `%gd`，ref 由列表下标合成 `stash@{n}`；`readStashRef` 只接受 `stash@{n}` 或十六进制哈希；pop/apply/drop 前后核对贮藏条数 | `%gd` 配 `--date=iso-strict` 会展开成 `stash@{2026-09-15T…}` 时间戳选择器，git 对它会打印 `Dropped …`、退出码 0 **却什么都不删**（同秒两条 ref 完全相同）→ 面板显示成功但记录还在。条数核对把这种静默失败变成明确错误 |
+| 2026-09-15 | 差异面板：上下布局 + 可拖高度（与提交详情共用 `detailHeight`）；左侧行号槽；长行默认换行（`pre-wrap` + `break-all`，容器 `overflow-x: hidden`），底色画在整行 | 用户要求与提交详情一致的布局；长行横向滚动时右侧露出的区域不属于任何行内 span，红/绿底色会"丢"，换行后整行着色即可 |
+| 2026-09-15 | `↑`/`↓` 的跳转目标是**改动块**（连续 `+`/`-` 行）而不是 `@@` hunk 头；光标每次点击都按**当前滚动位置**重算；页首 ↑ 置灰；高亮只点亮左侧行号槽 | 按 hunk 跳会跳过同一 hunk 里的第二、三处改动（用户实测 README 的 5 处改动被跳站）；记"上次点过的行"在手动滚动后就是过期位置；整块高亮会冲淡代码区的红/绿对比 |
+| 2026-09-15 | 加载图标换成 SVG 圆弧 spinner，用 `requestAnimationFrame` 驱动旋转（不注入样式表、不用 SMIL） | 静态半区不能写 `document.head`，CSS 动画要有全局样式表；SMIL 又要押浏览器/React 对 `<animateTransform>` 的支持。rAF 每帧只重渲染这个小叶子组件，代价可忽略 |
+| 2026-09-15 | 输入框统一 `outline: none` + `TextInput`/`TextArea` 组件用内部 `focused` 状态模拟 `:focus`（蓝描边 + 淡底 + 柔光） | 用户反馈默认焦点是高亮一圈黑色很丑；零构建下写不了 `:focus`，只能状态模拟（只重渲染该输入框）。复选框单独用 `accent-color` |
+| 2026-09-15 | 底部状态栏只在忙碌时渲染（只留阶段文案），路径/远程/改动数/耗时/命令数/右键提示全部删掉 | 用户要求删；这些信息在顶部路径框、分组标题、Console 页、完成 toast 里都能看到，重复显示没有价值 |
+| 2026-09-15 | 本地分支行显示相对 upstream 的 `↑领先` / `↓落后`（都为零时不显示） | 数据早就在 `parseBranchList` 里（`%(upstream:track,nobracket)`），补齐信息密度；为零时不显示是为了避免每行挂 `↑0 ↓0` |

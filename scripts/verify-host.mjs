@@ -358,6 +358,33 @@ await check('branches 过滤 origin/HEAD 符号引用', 'branches', { cwd: remot
   return names.includes('origin') === false ? undefined : `符号引用没被过滤：${names.join(', ')}`
 })
 
+/* ------------------------------------------------------------ stash 引用回归
+ * `stash list` 曾经用 %gd 生成 ref，配上 --date=iso-strict 会变成 `stash@{2026-09-15T…}` 时间戳选择器；
+ * git 对那种引用会打印 "Dropped …" 并退出码 0 **却什么都不删**（同秒的两条 ref 还完全一样）。
+ * 现在 ref 由列表下标合成 stash@{n}，并对非法引用直接 bad-request。
+ */
+writeFileSync(join(remoteScratch, 'stashed.txt'), 'v1\n', 'utf8')
+rawGit(['add', 'stashed.txt'])
+rawGit(['commit', '--quiet', '-m', 'add stashed'])
+writeFileSync(join(remoteScratch, 'stashed.txt'), 'v2\n', 'utf8')
+
+await check('stash push 回最新的 stash@{0}', 'stash', { cwd: remoteScratch, action: 'push', message: 'verify' }, (value) => (
+  value.ref === 'stash@{0}' ? undefined : `ref=${value.ref}`
+))
+
+await check('stash list 的 ref 是 stash@{n}', 'stash', { cwd: remoteScratch, action: 'list' }, (value) => {
+  if (!Array.isArray(value.stashes) || value.stashes.length !== 1) return `条数=${value.stashes === undefined ? 'n/a' : value.stashes.length}`
+  return /^stash@\{\d+\}$/.test(value.stashes[0].ref) ? undefined : `ref 不是数字选择器：${value.stashes[0].ref}`
+})
+
+await expectError('stash drop 拒绝时间戳式坏引用', 'stash', { cwd: remoteScratch, action: 'drop', ref: 'stash@{2026-01-01T00:00:00+08:00}' }, 'git-vcs/bad-request')
+
+await check('stash drop 真的删掉记录', 'stash', { cwd: remoteScratch, action: 'drop', ref: 'stash@{0}' }, () => undefined)
+
+await check('stash drop 之后列表为空', 'stash', { cwd: remoteScratch, action: 'list' }, (value) => (
+  Array.isArray(value.stashes) && value.stashes.length === 0 ? undefined : `条数=${value.stashes === undefined ? 'n/a' : value.stashes.length}`
+))
+
 rmSync(remoteScratch, { recursive: true, force: true })
 
 console.log(results.join('\n'))
