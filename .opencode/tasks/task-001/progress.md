@@ -196,3 +196,10 @@
 - **根因**：`selected` 只在点击时写入，快照刷新后没有复核，于是留下了指向已不存在条目的面板与按钮。
 - **修法**：新增选中项校验 effect（依赖 `[status, applied]`）——条目已不在 `entries()` 里就清空 `selected`/`patch`；条目只是换了分组（刚点暂存）则跟随到新分组；`ignored` 项不参与跟随。
 - **验证**：`node --check` 通过；`verify-host.mjs` 30/30；预览 `gitvcs-3/pkg-9` 已重启（run-18）。副作用行为需真机点一次确认（客户端逻辑，自检脚本覆盖不到）。
+
+### 2026-09-15（右键菜单加推送）
+
+- **需求**：右键菜单里加推送功能。
+- **实现**：commitMenuItems 新增「远程」分组（排在「修改历史（危险）」之前）——「推送当前分支（Push）」git push（hint 显示 upstream），epo.upstream === '' && 非分离 HEAD 时追加「推送并设置 upstream」→ push {setUpstream:true, branch}（host 走 `--set-upstream origin <branch>`）。
+- **门禁**：与工具栏一致 `allowPush !== true` 时置灰并给出悬停原因（配置未读到 / allowPush=false）；分离 HEAD 下推送置灰。
+- **验证**：`node --check` 通过；`verify-host.mjs` 30/30；预览 `gitvcs-3/pkg-9` 已重启（run-19）。

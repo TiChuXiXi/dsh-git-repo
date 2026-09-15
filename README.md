@@ -107,6 +107,9 @@ node scripts\verify-host.mjs D:\zxh\code\git-plugin
     - **查看**：展开提交详情
     - **复制**：复制完整 ID / 短 ID / 提交信息 / 作者与邮箱
     - **分支** ▸：基于此提交新建分支（自动展开详情并聚焦分支名输入框）、检出此提交（分离 HEAD）、把此提交合并到当前分支
+    - **远程**：推送当前分支（Push，右侧提示 upstream，如 `git push → origin/main`）；**没有 upstream 时**额外给
+      「推送并设置 upstream」（`git push --set-upstream origin <分支>`，不用回终端设跟踪关系）。
+      与工具栏 Push 同一道门禁：`allowPush !== true`（默认）时置灰，悬停说明原因；分离 HEAD 下推送项同样置灰。
     - **修改历史（危险）** ▸：拣选（Cherry-Pick）、回滚（Revert）、重置到此提交 ▸（Soft / Mixed / Hard，Hard 走二次确认）
     - 受 `allowWrite` / `allowDangerous` 门禁的项自动置灰禁用。
   - **Commit 列**：显示短哈希，**直接点击短哈希即复制完整提交 ID**（无独立按钮），
