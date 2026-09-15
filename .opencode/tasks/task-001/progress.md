@@ -124,3 +124,16 @@
     圆点改为 **SVG `<circle cx=6 cy=6 r=4 stroke-width=2>`**（12px 画布，外沿半径 5px 正好接住两段连线）。
   - ① HEAD 由"加粗描边"改为 **`fill = ring` 实心**；判定用 `repo.oid === item.hash`（拿不到时退回列表首行）。
 - **验证**：`node --check` 通过；`preview-check.mjs` 全通过；动态预览 `gitvcs-3/pkg-9` 已重启加载最新源码。
+
+### 2026-09-15（提交树第四轮：按当前分支优先着色 + 行 hover/pointer）
+
+- **用户反馈**：① 节点与连线颜色要跟"当前链 head 所在分支"，不能被中间出现的分支颜色覆盖
+  （例：main A-B-C-D、远程在 C、从 C 分出 test 到 E → A/B/C/D 全 main，只有 E 是 test）；
+  ② 每行要 hover 高亮且光标为 pointer。
+- **修法**：
+  - `logColorOf` 改为**分支优先级多源 BFS**：把带标签的提交按优先级分组（当前分支 0 > 其它本地分支 1 > 远程分支 2），
+    逐组沿父提交传播、已染色不覆盖；detached HEAD 时用 `headHash` 给优先级 0 补种子。
+    这样当前分支的整条链先定型，其它分支只能染自己独有的提交，与日志顺序无关。
+  - Log 行样式加 `cursor: pointer`，新增 `rowHover` 背景 + `hoverHash` 状态（`onMouseEnter`/`onMouseLeave`，
+    只在哈希变化时 set），选中行仍用 `rowOn`。
+- **验证**：`node --check` 通过；`verify-host.mjs` 23/23；`preview-check.mjs` 全通过；预览 `gitvcs-3/pkg-9` 已重启（run-13）。
