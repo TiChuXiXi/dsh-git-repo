@@ -182,3 +182,10 @@
   - `scripts/verify-host.mjs`：新增 3 条回归断言（status 认出未跟踪、普通 diff 为空、`untracked=true` 拿到新文件差异）→ **30 通过 / 0 失败**。
   - `scripts/status-probe.mjs`：新增常驻探针（用插件自己的 status/diff 打印条目与三种 diff 长度）。
 - **验证**：`node --check` 通过；`verify-host.mjs` 30/30；`preview-check.mjs` 全通过；预览 `gitvcs-3/pkg-9` 已重启（run-16）。
+
+### 2026-09-15（tab 标题被关闭按钮覆盖）
+
+- **用户反馈**：右侧栏「版本管理」tab 选中时关闭按钮覆盖了标题尾字，要求再加宽。
+- **根因**：dockkit 的 chip CSS —— 选中 / hover 时把 × 绝对定位在 `右缘 - 24px`，并对标题容器 `._tabTitle` 加 mask-image: linear-gradient(to right, black calc(100% - 30px), transparent calc(100% - 14px))`，用**渐隐吃掉标题尾部**给按钮让位；我们的标题组件没预留这段，于是渐隐压住最后一个字。
+- **修法**：`S.title` 加 `paddingRight: 32px` + `minWidth: 104px`（`boxSizing: border-box`）—— 内容 71px（图标 14 + gap 5 + 4 个 13px CJK ≈ 52）之后留出空白，渐隐落在空白上；chip 宽度随之增加（约 124px，未超 kit 的 max-width 170px）。
+- **验证**：`node --check` 通过；预览 `gitvcs-3/pkg-9` 已重启（run-17）。

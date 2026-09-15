@@ -22,6 +22,7 @@
 |------|------------|------------|-------------|---------------|
 | 2026-09-14 | 只用 `cordis_inspect_query` 去确认某个客户端服务（如 `sidebarRightTabs`）的签名 | 客户端 Service 目录是**静态子集**，不在目录里的真实服务（`ctx.reflect.provide` 提供的）一查就让 Tool **永久挂起**；这类服务直接 `ctx.get('name')` + undefined 检查，签名照抄产品内活实现 | 宿主 `dsh-cordis-host-runner/lib/types/inspect-registry.js` 的 `resolveClientQuery` 只接受 `ok:true`，provider 报错（`no catalogued Service named "x"`）时既不 settle 也不清理 pending，只能等调用被取消 | `cordis_inspect_query`、`lib/client.js` |
 | 2026-09-14 | 客户端 tab 标题用带 `flex-wrap: wrap` 的 flex 容器包图标 + 文本 | 照抄官方 `FilesTitle`：`Fragment(图标, 文本)`，自定义容器必须 `display:inline-flex` + `white-space:nowrap` + `min-width` | chip 一窄就折行并被固定行高裁掉，表现为「tab 标题显示不下」 | `lib/client.js`（GitTitle） |
+| 2026-09-15 | tab 标题只放图标 + 文字，指望 chip 的 `min-width` 撑出宽度 | dockkit 的 chip 在选中 / hover 时把关闭按钮绝对定位在「右缘 - 24px」，并给标题容器加 `mask-image: linear-gradient(to right, black calc(100% - 30px), transparent calc(100% - 14px))` —— **用渐隐吃掉标题尾部**给按钮让位。标题组件必须自带 `padding-right: 32px`（本例内容约 71px，故 `min-width: 104px`），让渐隐落在空白上 | 不预留时渐隐区正压住「版本管理」的最后一个字，选中时看起来像被 × 覆盖（用户截图反馈）；这不是布局 bug，而是没遵守**遮罩预留约定** | `lib/client.js`（S.title）、dockkit chip CSS（`._tabTitle` / `._tabClose`） |
 
 ### Cordis/服务注入 规范
 
