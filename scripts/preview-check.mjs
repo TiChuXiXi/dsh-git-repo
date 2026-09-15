@@ -85,10 +85,24 @@ const fakeFs = {
 }
 
 const registry = new Map()
+/** host 半区现在自己往 webServer 注册 RPC 路由，并复用 connection 的信任栅栏；沙箱里没有这两个服务，给垫片。 */
+const fakeWebServer = {
+  register(route) {
+    registry.set('route', route)
+    return () => registry.delete('route')
+  },
+}
+const fakeConnection = {
+  requestRejection() {
+    return undefined
+  },
+}
 const fakeCtx = {
   get(key) {
     if (key === 'subprocess') return fakeSubprocess
     if (key === 'fs') return fakeFs
+    if (key === 'webServer') return fakeWebServer
+    if (key === 'connection') return fakeConnection
     return undefined
   },
   effect(fn) {
@@ -99,8 +113,8 @@ const fakeCtx = {
 /* -------------------------------------------------- 与真实 loader 相同的转换 */
 
 const HOST_FILE = join(ROOT, 'index.js')
-const CHANNEL = 'git-vcs'
-const CONNECTION_SHIM = "const connection = { rpc: { handle: (_channel, handler) => { bridge.handler = handler; return harness.handle('" + CHANNEL + "', (args) => bridge.invoke(args)) } } }"
+const CHANNEL = '/git-vcs'
+const CONNECTION_SHIM = ''
 
 /** 沙箱里没有 AbortSignal：用鸭子类型信号顶上（真实 subprocess 只按属性校验）。 */
 function makeAbortSignal() {
@@ -185,7 +199,6 @@ async function statShim(path) {
 const transformed = readFileSync(HOST_FILE, 'utf8')
   .replace(/^import .*$/gm, '')
   .replace(/^export /gm, '')
-  .replace("const connection = ctx.get('connection')", CONNECTION_SHIM)
 
 const traps = {}
 for (const name of ['require', 'setTimeout', 'setInterval', 'setImmediate', 'clearTimeout', 'clearInterval', 'fetch']) {
@@ -206,6 +219,8 @@ const sandbox = {
   },
   btoa: (value) => Buffer.from(value, 'utf-8').toString('base64'),
   atob: (value) => Buffer.from(value, 'base64').toString('utf-8'),
+  // host 半区读写请求体用了 Buffer（真实 host 进程天然有；vm 上下文里没有，给一个）
+  Buffer,
   TextEncoder,
   TextDecoder,
   ctx: fakeCtx,
@@ -242,33 +257,61 @@ function lossless(value, path) {
 /* -------------------------------------------------------------------- 跑起来 */
 
 const factory = runInContext(
-  `(function (ctx, harness, console, process, stat, isAbsolute, relative, resolvePath, AbortSignal, bridge) {\n${transformed}\nreturn apply })`,
+  `(function (ctx, harness, console, process, stat, isAbsolute, relative, resolvePath, AbortSignal) {\n${transformed}\nreturn apply })`,
   sandbox,
   { filename: 'cordis-dyn-preview.js' },
 )
-const bridge = { handler: null }
-bridge.invoke = async (args) => {
-  const endpoint = typeof args === 'object' && args !== null ? args.endpoint : undefined
-  const payload = typeof args === 'object' && args !== null ? args.payload : undefined
-  let envelope
-  try {
-    envelope = await bridge.handler(endpoint, payload, undefined)
-  } catch (cause) {
-    return { ok: false, error: { code: 'git-vcs/preview-failed', message: `端点 ${String(endpoint)} 抛出：${cause instanceof Error ? cause.message : String(cause)}`, details: {} } }
+const realApply = factory(fakeCtx, sandbox.harness, sandbox.console, { platform: 'win32' }, statShim, isAbsoluteShim, relativeShim, resolvePathShim, AbortSignalShim)
+await realApply(fakeCtx, {})
+
+/* -------------------------------------------- 像浏览器那样调用注册好的路由
+ * host 半区现在自己往 webServer 注册 prefix 路由，信封与 Connection RPC 一致：
+ *   请求 { type:'client-request', rpcId, method, payload }
+ *   响应 { type:'server-response', rpcId, result: { ok, value|error } }
+ */
+const route = registry.get('route')
+if (route === undefined) {
+  console.log('FAIL 未注册 webServer 路由', [...registry.keys()])
+  process.exit(1)
+}
+if (route.path !== CHANNEL) {
+  console.log(`FAIL 路由路径不是 ${CHANNEL}：${route.path}`)
+  process.exit(1)
+}
+
+function fakeRequest(bodyText) {
+  const chunks = [Buffer.from(bodyText, 'utf8')]
+  return {
+    method: 'POST',
+    url: `${CHANNEL}/probe`,
+    headers: { host: '127.0.0.1:3080' },
+    async *[Symbol.asyncIterator]() {
+      for (const chunk of chunks) yield chunk
+    },
   }
+}
+
+async function call({ endpoint, payload }) {
+  const holder = { status: 0, body: '' }
+  const response = {
+    writeHead(status) { holder.status = status },
+    end(body) { holder.body = body === undefined ? '' : String(body) },
+  }
+  await route.handler(fakeRequest(JSON.stringify({
+    type: 'client-request',
+    rpcId: `probe-${endpoint}`,
+    method: endpoint,
+    payload,
+  })), response)
+  if (holder.status !== 200) throw new Error(`HTTP ${holder.status} ${holder.body.slice(0, 80)}`)
+  const full = JSON.parse(holder.body)
+  if (full.type !== 'server-response' || full.rpcId !== `probe-${endpoint}`) throw new Error(`信封异常：${holder.body.slice(0, 120)}`)
+  const envelope = full.result
   const problem = lossless(envelope, 'result')
   if (problem !== undefined) {
     return { ok: false, error: { code: 'git-vcs/preview-payload', message: `端点 ${String(endpoint)} 返回值不是无损 JSON：${problem}`, details: {} } }
   }
   return envelope
-}
-const realApply = factory(fakeCtx, sandbox.harness, sandbox.console, { platform: 'win32' }, statShim, isAbsoluteShim, relativeShim, resolvePathShim, AbortSignalShim, bridge)
-await realApply(fakeCtx, {})
-
-const call = registry.get(CHANNEL)
-if (call === undefined) {
-  console.log('FAIL 未注册 harness 通道', [...registry.keys()])
-  process.exit(1)
 }
 
 const calls = [

@@ -3,7 +3,7 @@
 # 安装：dsh plugin --profile web add <本目录>
 # 可调参数（全部有代码内默认值，缺省即默认；改这里会触发热替换）：
 #   allowWrite:    关闭所有写操作（默认 true）
-#   allowPush:     是否允许 push（默认 false）
+#   allowPush:     是否允许 push（默认 true；置 false 则 Push / 推送按钮置灰，不碰远端）
 #   allowDangerous:是否允许 reset / revert / cherry-pick / 删除分支 / 丢弃改动（默认 true）
 #   gitPath:       git 可执行文件绝对路径，空 = 从 PATH 解析
 #   repoRoot:      限定可操作的仓库根，空 = 允许任意会话工作目录
@@ -11,7 +11,13 @@
 - insert:
     - id: git-vcs
       name: dsh-git-vcs
+      # loader **行级** inject（模块里 export 的 inject 管不到这一行）：
+      #   subprocess —— 跑 git；
+      #   connection —— 复用它的 requestRejection() 做信任栅栏（Host/Origin + 会话认证）；
+      #   webServer  —— 插件自己把 /git-vcs 这条 prefix 路由注册到它上面。
+      # 少任何一个，启动时都会报 cannot get property "xxx" without inject 整棵树加载失败。
+      inject: [subprocess, connection, webServer]
       config:
         allowWrite: true
-        allowPush: false
+        allowPush: true
         allowDangerous: true

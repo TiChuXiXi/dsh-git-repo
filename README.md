@@ -83,7 +83,8 @@ node scripts\verify-host.mjs D:\zxh\code\git-plugin
 - **Local Changes**：按「冲突 / 已暂存 / 已修改 / 未跟踪」分组，行内状态字母（蓝=修改、绿=新增、
   灰=删除、红=冲突），选中行后可暂存 / 取消暂存 / 回滚；**差异默认不显示**，点文件才在右侧展开，右上角 `×` 关闭。
   > 两种"选择"在面板里是分开的、互不影响：**勾选框**决定本次提交包含哪些文件
-  > （提交走 `git commit -m <信息> -- <勾选的文件>`，pathspec 语义：忽略索引里其它内容）；
+  > （提交走 `git add -- <勾选的文件>` + `git commit -m <信息> -- <勾选的文件>`：
+  > 先暂存再按 pathspec 提交，未跟踪文件也能直接勾选提交，且忽略索引里其它内容）；
   > **「暂存 / 取消暂存」**是 `git add` / `git restore --staged`，把改动放进或移出**索引（Index）**，
   > 供你在终端或别的工具里按标准 git 工作流使用。`MM` 状态的文件会同时出现在「已暂存」和「已修改」两个分组里。
   差异按行所属分组取：已暂存组走 `diff --cached`、其余走工作区 `diff`；**未跟踪文件必须带 `untracked=true`**
@@ -92,7 +93,8 @@ node scripts\verify-host.mjs D:\zxh\code\git-plugin
   选中项会随快照校验：条目消失（文件被别处提交/回滚）即收起差异面板与底部操作条，条目只是换了分组（刚点了暂存）
   则跟随到新分组，避免右侧继续显示已经不存在的差异。
 - **提交区**：提交信息、Amend（`allowDangerous` 控制）、Commit。每一行改动前面有**勾选框**（零构建下自己画的方块，
-  点它只切换勾选、不打开右侧差异），**只提交勾选的文件**（host 的 `commit` 带 pathspec → 只提这些路径）；
+  点它只切换勾选、不打开右侧差异），**只提交勾选的文件**（host 的 `commit` 先 `git add` 这些路径、
+  再按 pathspec 提交 → 只提这些路径，未跟踪文件同样可选）；
   行内还有「全选 / 全不选」。没有可提交的改动、或一个文件都没勾时 **Commit 置灰**（悬停说明原因），
   不再出现"点了才报错"；Amend 语义是修补上一次提交，**忽略勾选**（按钮文案里已注明）。
 - **Log**（列顺序对齐 IDEA：**时间 · 提交树 · Message · Author · Commit**）：
@@ -134,7 +136,7 @@ node scripts\verify-host.mjs D:\zxh\code\git-plugin
   的 `%(refname:short)` 会退化成 `origin`，不过滤就会和真正的 `origin/main` 一起显示成两条。每行操作：
   本地分支 **推送**（有 upstream 时 `git push <remote> <branch>`；没有 upstream 时按钮变成「推送并设 upstream」，
   走 `git push --set-upstream <remote> <branch>`，`remote` 取自该分支的 upstream，缺省 `origin`）、切换、合并、删除，
-  顶部还有「新建并切换」。推送与工具栏 Push 同一道门禁（`allowPush`，默认关闭）。
+  顶部还有「新建并切换」。推送与工具栏 Push 同一道门禁（`allowPush`，默认开）。
 - **Remotes**：`git remote -v` 的全部远程与 fetch / push 地址；顶部表单可填**名字 + URL（+ 可选 push URL）→ Add Remote**，
   每个远程行有 **Remove** 危险按钮（点击走内联二次确认）。均受 `allowWrite` 门禁控制。
 - **Stash（贮藏）**：`git stash` 的入口 —— 把当前未提交的改动**整体收起来**、工作区回到干净状态，
@@ -190,8 +192,9 @@ node scripts\verify-host.mjs D:\zxh\code\git-plugin
 
 **SSH 远程不做认证**：`git@host:owner/repo.git` 走密钥/agent，插件不参与；失败按第 4 条报错。
 
-> 想真推之前记得把 `allowPush` 打开（默认 `false`，见下节）。沙箱环境里凭据助手可能起不来
-> （`sh.exe: couldn't create signal pipe`），此时第 3 条的会话内存兜底就是主要通路。
+> `allowPush` 默认就是 `true`（与 IDEA 一致：配好 remote 就能直接推）。不想让插件碰远端时，
+> 在 `cordis.patch.yml` 里置 `false`，Push / 推送按钮会置灰并说明原因。
+> 沙箱环境里凭据助手可能起不来（`sh.exe: couldn't create signal pipe`），此时第 3 条的会话内存兜底就是主要通路。
 
 ## 配置
 
@@ -200,7 +203,7 @@ node scripts\verify-host.mjs D:\zxh\code\git-plugin
 | 字段 | 默认 | 说明 |
 |------|------|------|
 | `allowWrite` | `true` | 关闭后所有写操作（暂存/提交/分支/贮藏…）直接报 `git-vcs/write-disabled` |
-| `allowPush` | **`false`** | 是否允许 push；关闭时按钮禁用并提示 |
+| `allowPush` | `true` | 是否允许 push；置 `false` 时按钮禁用并提示 |
 | `allowDangerous` | `true` | 是否允许 reset / revert / cherry-pick / 删分支 / 回滚文件 |
 | `gitPath` | `''` | git 可执行文件绝对路径，空 = 从 PATH 解析 |
 | `repoRoot` | `''` | 限定可操作的仓库根；空 = 允许任意会话工作目录 |
@@ -263,7 +266,30 @@ dsh plugin --profile web remove dsh-git-vcs
 
 其余自检脚本：
 
-- `node scripts/verify-host.mjs [仓库]`：宿主域内跑只读端点 + 错误码门禁 + 临时仓库写操作（30 条断言）。
+- `node scripts/verify-host.mjs [仓库]`：宿主域内跑只读端点 + 错误码门禁 + 临时仓库写操作（43 条断言）。
 - `node scripts/status-probe.mjs [仓库]`：用插件自己的 `status` / `diff` 读当前工作区，
   逐条打印 index/worktree 标记与三种 diff 的长度 —— 用于排查「列表说改了、差异却是空」
   （先确认是解析问题还是文件真的没改动）。
+- `node scripts/web-rpc-probe.mjs`：在**隔离的 DSH_HOME** 里用完整 web 组合（base + web-app + 本插件）
+  起一个临时实例（端口 3199），抓插件的 host 日志，并对 `/git-vcs` 路由做免认证探测：
+  路由存在 → 信任栅栏回 401（与 `/api` 对照一致）；路由缺失 → 静态兜底回 405。
+  专门用于验证「装进 profile 后 RPC 有没有真的挂上」这类只在真组合里暴露的问题。
+
+## RPC 通道是怎么挂的（以及与官方 API 的取舍）
+
+浏览器侧照旧用 `ctx.connection.rpc.call('/git-vcs', endpoint, payload)`；host 侧**自己注册**一条
+`webServer` 的 prefix 路由 `/git-vcs`，线格式与 Connection RPC 一致
+（请求 `{type:"client-request",rpcId,method,payload}` → 响应 `{type:"server-response",rpcId,result}`），
+并复用 `ctx.connection.requestRejection(req)` 做信任栅栏（Host/Origin + 浏览器会话认证）。
+
+不用官方那两个入口的原因（dsh 0.9.0 实测）：
+
+- `connection.rpc.handle(channel, handler)`：它把路由注册到 **connection 服务自己 ctx** 的 `webServer` 上，
+  而 web-app 的 `connection` 行只 `inject: [webRuntime]`，任何第三方调用都会
+  `cannot get property "webServer" without inject`，**整棵插件树加载失败**（不只是本插件的问题）。
+- `connection.rpc.intercept('/api', …)`：官方推荐的共享通道，但是**单占位**——
+  api-gateway 已经占了，再注册会抛 `already has an interceptor`。
+
+host 行的 `inject` 必须是真实存在的三个服务：`subprocess`（跑 git）、`connection`（信任栅栏）、
+`webServer`（注册路由）。早期用 `inject: []` + 一次性 `ctx.get()` 会在提供方就绪前激活，
+日志表现为 `host 半区激活：subprocess=缺席 connection=缺席` → 通道没挂上 → 浏览器侧 405。

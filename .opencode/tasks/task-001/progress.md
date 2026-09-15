@@ -295,3 +295,41 @@
   缺 secret 报错、SSH 地址被拒）→ **43 通过 / 0 失败**；`preview-check.mjs` 全通过；`node --check` 通过。
   README 增加「推送与认证（对齐 IDEA 的做法）」一节。
 - **说明**：本轮改动**未提交**，等用户真机（本地安装）实测过 push 再提交/推送。
+
+### 2026-09-15（第一次真机安装：RPC 通道 405 的两个根因与修法）
+
+- **背景**：用户要求"把插件通过本地链接装进去，不要用动态加载了"。安装本身成功（修好跨盘符坏 junction →
+  `dsh plugin --profile web list` 触发 bundles 对账 → `--dump-config` 出现 `# == dsh-git-vcs`；隔离冒烟启动通过）。
+  真机现象：面板能渲染，但每个请求都 `git-vcs/transport: transport failure for /git-vcs/repo/snapshot: HTTP 405`。
+- **定位手段**：新增 `scripts/web-rpc-probe.mjs` —— 隔离 DSH_HOME + 完整 web 组合（base + web-app + 本插件）
+  在 3199 端口起实例，抓 host 日志并对自定义路径做**免认证探测**（401 = 路由存在且过信任栅栏，
+  405 = 路由缺失被静态兜底接手），并与 `/api` 对照。
+- **根因 1（inject 时机）**：host 半区原来 `inject: []` + 在 `apply()` 里一次性 `ctx.get('subprocess')`，
+  会在提供方就绪前激活 → 日志 `subprocess=缺席 connection=缺席` → 能力静默不注册。
+  改为在插件与 loader 行都声明 `inject: [subprocess, connection, webServer]`（cordis 会等服务就绪再激活）。
+- **根因 2（`connection.rpc.handle` 在这版 dsh 里不可用）**：它把路由注册到 **connection 服务自己 ctx** 的
+  `webServer` 上，而 web-app 的 `connection` 行只有 `inject: [webRuntime]` → 任何第三方调用都会
+  `cannot get property "webServer" without inject`，整棵插件树加载失败；官方推荐的
+  `connection.rpc.intercept('/api', …)` 又是**单占位**（api-gateway 已占用，二次注册抛错）。
+  改为**自己注册 `webServer` prefix 路由** `/git-vcs`：复用 `connection.requestRejection()` 做信任栅栏，
+  线格式与 Connection RPC 一致（`client-request` / `server-response` + rpcId），浏览器侧代码无需改动。
+- **验证**：探针输出 `RPC 通道已注册：/git-vcs` + `POST /git-vcs/repo/snapshot → HTTP 401`（与 `/api` 一致，
+  说明路由存在且过栅栏）；两个自检脚本跟着适配（`verify-host.mjs` 改为通过假 `webServer` 路由驱动端点，
+  **43 通过 / 0 失败**；`preview-check.mjs` 同样走路由并给 vm 上下文垫 `Buffer`）。
+- **副作用**：动态预览（`gitvcs-3`）在这版源码下**不再可行** —— 动态沙箱没有真实 `webServer`/`connection`，
+  已安装的真插件成为唯一载体（用户本来也要切过去）；动态包定义仍保留以便回退旧版本。
+- **待确认**：用户重启 `dsh web` 后面板是否正常（期望两行日志齐全）。
+
+### 2026-09-15（真机回归：勾选提交撞 pathspec，`allowPush` 转正）
+
+- **背景**：用户已切到本地链接安装的真插件，用面板本身提交本仓库改动，勾选了未跟踪的
+  `scripts/web-rpc-probe.mjs` → 报错 `git-vcs/git-failed: error: pathspec 'scripts/web-rpc-probe.mjs'
+  did not match any file(s) known to git`（截图反馈）。
+- **根因**：带 pathspec 的提交只认 git 已知的路径。勾选集合里只要有未跟踪文件，
+  `git commit -m <信息> -- <paths>` 就**整单失败**，连已跟踪的路径也提交不了（本地临时仓库已复现）。
+- **改动**：host `commit` 在带 `paths` 时先 `git add -- <paths>` 再 `git commit -m <信息> -- <paths>`
+  （pathspec 仍保证只提交勾选的那些，不动索引里其它内容）；客户端注释与 README 两处描述同步；
+  新增两条回归断言（"带未跟踪路径的提交不报 pathspec" / "只提交勾选的路径，其余原位不动"）。
+- **顺带收尾**：`allowPush` 默认值与 `cordis.patch.yml` 均改为 `true`（此前已改，本轮补记决策）。
+- **验证**：`node --check`（index.js / lib/client.js）通过；`verify-host.mjs` **45 通过 / 0 失败**
+  （新增 2 条）；`preview-check.mjs` 全部通过。

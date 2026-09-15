@@ -72,20 +72,46 @@ const fakeSubprocess = {
   },
 }
 
-let handler
+/* host 半区现在自己往 webServer 注册 RPC 路由，并复用 connection.requestRejection 做信任栅栏；
+   这里给两个垫片，并把「调用端点」包成走这条路由（信封与 Connection RPC 一致）。 */
+function makeFakeWebServer(holder) {
+  return {
+    register(route) {
+      holder.route = route
+      return () => { holder.route = undefined }
+    },
+  }
+}
+const fakeConnection = { requestRejection: () => undefined }
+
+/** 造一个只读的请求体迭代器 + 收集响应的假 res。 */
+async function callRoute(holder, endpoint, payload) {
+  const body = JSON.stringify({ type: 'client-request', rpcId: `verify-${endpoint}`, method: endpoint, payload })
+  const response = holder.response
+  await holder.route.handler({
+    method: 'POST',
+    url: `/git-vcs/${endpoint}`,
+    headers: {},
+    async *[Symbol.asyncIterator]() {
+      yield Buffer.from(body, 'utf8')
+    },
+  }, {
+    writeHead(status) { response.status = status },
+    end(value) { response.body = value === undefined ? '' : String(value) },
+  })
+  if (response.status !== 200) throw new Error(`HTTP ${response.status} ${response.body.slice(0, 80)}`)
+  const full = JSON.parse(response.body)
+  if (full.type !== 'server-response') throw new Error(`响应不是 server-response：${response.body.slice(0, 120)}`)
+  return full.result
+}
+
+const mainRoute = { route: undefined, response: { status: 0, body: '' } }
+let handler = (endpoint, payload) => callRoute(mainRoute, endpoint, payload)
 const fakeCtx = {
   get(key) {
     if (key === 'subprocess') return fakeSubprocess
-    if (key === 'connection') {
-      return {
-        rpc: {
-          handle(channel, fn) {
-            handler = fn
-            return Promise.resolve(async () => undefined)
-          },
-        },
-      }
-    }
+    if (key === 'webServer') return makeFakeWebServer(mainRoute)
+    if (key === 'connection') return fakeConnection
     return undefined
   },
   effect(fn) {
@@ -94,6 +120,10 @@ const fakeCtx = {
 }
 
 apply(fakeCtx, { allowWrite: true, allowPush: false, allowDangerous: true })
+if (mainRoute.route === undefined) {
+  console.error('插件没有注册 /git-vcs 路由（host 半区没激活？）')
+  process.exit(1)
+}
 
 const results = []
 async function check(label, endpoint, payload, inspect) {
@@ -309,24 +339,38 @@ await check('未跟踪文件：untracked=true 拿到新文件差异', 'diff', { 
   return undefined
 })
 
+/* ------------------------------- 带 paths 的提交必须先 add（未跟踪文件回归）
+ * `git commit -m msg -- <paths>` 只认 git 已知的路径：路径里有未跟踪文件时整单失败
+ * （error: pathspec 'x' did not match any file(s) known to git），连已跟踪的路径也提交不了。
+ * host 必须在提交前先 `git add -- <paths>`。
+ */
+writeFileSync(join(remoteScratch, 'checked-new.txt'), '勾选\n', 'utf8')
+writeFileSync(join(remoteScratch, 'unchecked-new.txt'), '未勾选\n', 'utf8')
+
+await check('带未跟踪路径的提交不报 pathspec', 'commit', { cwd: remoteScratch, message: 'verify: 只提勾选的', paths: ['checked-new.txt'] }, (value) => {
+  if (typeof value?.stdout !== 'string') return 'stdout 缺失'
+  return value.stdout.includes('checked-new.txt') ? undefined : `提交输出没提到该文件（${value.stdout.slice(0, 120)}）`
+})
+
+await check('只提交勾选的路径，其余原位不动', 'status', { cwd: remoteScratch }, (value) => {
+  const paths = Array.isArray(value.entries) ? value.entries.map((entry) => entry.path) : []
+  if (paths.includes('checked-new.txt')) return '勾选的文件提交后仍在改动列表里'
+  if (paths.includes('unchecked-new.txt') === false) return '未勾选的未跟踪文件被一起提交了'
+  if (paths.includes('brand-new.txt') === false) return '另一个未跟踪文件被一起提交了'
+  return undefined
+})
+
 /* ------------------------------------------------------- push 的参数构造
  * allowPush 默认关闭，所以要另起一个实例（每个实例自带 handler 与命令流水）。
  * 关键回归：`git push <branch>` 会把分支名当成仓库名，必须显式带 remote。
  */
-let pushHandler
+const pushRoute = { route: undefined, response: { status: 0, body: '' } }
+const pushHandler = (endpoint, payload) => callRoute(pushRoute, endpoint, payload)
 const pushCtx = {
   get(key) {
     if (key === 'subprocess') return fakeSubprocess
-    if (key === 'connection') {
-      return {
-        rpc: {
-          handle(channel, fn) {
-            pushHandler = fn
-            return Promise.resolve(async () => undefined)
-          },
-        },
-      }
-    }
+    if (key === 'webServer') return makeFakeWebServer(pushRoute)
+    if (key === 'connection') return fakeConnection
     return undefined
   },
   effect(fn) {
@@ -335,10 +379,10 @@ const pushCtx = {
 }
 apply(pushCtx, { allowWrite: true, allowPush: true, allowDangerous: true })
 
-const pushCall = (payload) => pushHandler('push', { cwd: remoteScratch, ...payload }, new AbortController().signal)
+const pushCall = (payload) => pushHandler('push', { cwd: remoteScratch, ...payload })
 await pushCall({ branch: 'main', remote: 'origin' })
 await pushCall({ branch: 'main', remote: 'origin', setUpstream: true })
-const pushLog = await pushHandler('console/list', {}, new AbortController().signal)
+const pushLog = await pushHandler('console/list', {})
 const pushArgvs = pushLog.ok === true ? pushLog.value.entries.map((entry) => entry.argv.join(' ')) : []
 if (pushArgvs.includes('git push origin main')) results.push('OK   push 分支时带上 remote（git push origin main）')
 else results.push(`FAIL push 未带 remote：${JSON.stringify(pushArgvs.slice(-2))}`)

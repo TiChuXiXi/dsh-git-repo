@@ -15,8 +15,21 @@ import { isAbsolute, relative, resolve as resolvePath } from 'node:path'
 
 export const name = 'git-vcs'
 
-/** 无硬依赖：两个服务都用 ctx.get() 取，缺席时降级而不是 pending。 */
-export const inject = []
+/**
+ * 硬依赖：这两个服务是插件存在的全部意义（没有它们就只能空转）。
+ *
+ * 为什么必须是 `inject` 而不是 `inject: []` + `ctx.get()`：
+ * loader 按组合顺序挂载行，我们的行排在 base / web-app 之后，但**一次性**在 apply() 里
+ * `ctx.get('subprocess')` 会读到 undefined —— 提供方那两行还没就绪（真机日志：
+ * `host 半区激活：subprocess=缺席 connection=缺席` → RPC 通道没注册 → 浏览器侧 405）。
+ * 声明成 inject 后 cordis 会等这两个服务就绪再激活本插件（缺席则停在 pending，语义正确）。
+ * 客户端半区一直声明着 inject，所以它没这个问题 —— 这也是当初定位的关键线索。
+ *
+ * `webServer` 也必须声明：`connection.rpc.handle(channel, handler)` 内部是把路由注册到
+ * **读取该服务的那个 ctx**（也就是本插件的 ctx）的 `ctx.webServer` 上；不声明就会报
+ * `cannot get property "webServer" without inject`，整棵插件树加载失败。
+ */
+export const inject = ['subprocess', 'connection', 'webServer']
 
 /** 插件行 config 的默认值（不导出 Schemastery Config：本插件刻意零运行时依赖）。 */
 const DEFAULTS = {
@@ -26,8 +39,8 @@ const DEFAULTS = {
   repoRoot: '',
   /** 关闭全部写操作。 */
   allowWrite: true,
-  /** 允许 push。 */
-  allowPush: false,
+  /** 允许 push（默认开，与 IDEA 一致：仓库配好 remote 就能直接推；不想让插件碰远端就置 false）。 */
+  allowPush: true,
   /** 允许 reset / revert / cherry-pick / 删分支 / 丢弃改动。 */
   allowDangerous: true,
   /** diff 上下文行数。 */
@@ -355,6 +368,7 @@ export function apply(ctx, rawConfig) {
   const config = normalizeConfig(rawConfig)
   const subprocess = ctx.get('subprocess')
   const connection = ctx.get('connection')
+  const webServer = ctx.get('webServer')
 
   console.log(`[dsh-git-vcs] host 半区激活：subprocess=${subprocess === undefined ? '缺席' : '就绪'} connection=${connection === undefined ? '缺席' : '就绪'}`)
   console.log(`[dsh-git-vcs] 配置：allowWrite=${config.allowWrite} allowPush=${config.allowPush} allowDangerous=${config.allowDangerous} gitPath=${config.gitPath === '' ? '(PATH)' : config.gitPath} repoRoot=${config.repoRoot === '' ? '(未限定)' : config.repoRoot}`)
@@ -995,7 +1009,15 @@ export function apply(ctx, rawConfig) {
       const args = ['commit', '-m', message]
       if (payload?.amend === true) args.push('--amend')
       if (payload?.signoff === true) args.push('--signoff')
-      if (Array.isArray(payload?.paths) && payload.paths.length > 0) args.push('--', ...readPaths(payload))
+      const hasPaths = Array.isArray(payload?.paths) && payload.paths.length > 0
+      const paths = hasPaths ? readPaths(payload) : []
+      // pathspec 形式的提交只认 git 已知的路径：未跟踪文件不先 add 会整单失败
+      // （error: pathspec 'x' did not match any file(s) known to git），
+      // 连已跟踪的那些路径也一起提交不了。所以带 paths 时先暂存这些路径。
+      if (hasPaths) {
+        gitOk(await runGit(['add', '--', ...paths], { cwd: root, signal }))
+        args.push('--', ...paths)
+      }
       const result = gitOk(await runGit(args, { cwd: root, signal }))
       return { stdout: result.stdout, stderr: result.stderr }
     },
@@ -1243,16 +1265,73 @@ export function apply(ctx, rawConfig) {
     }
   }
 
-  if (connection === undefined) {
-    console.warn(`[dsh-git-vcs] ctx.connection 缺席：RPC 通道 ${RPC_CHANNEL} 未注册，浏览器半区将拿不到数据。`)
+  if (connection === undefined || webServer === undefined) {
+    console.warn(`[dsh-git-vcs] ctx.connection / ctx.webServer 缺席：RPC 通道 ${RPC_CHANNEL} 未注册，浏览器半区将拿不到数据。`)
     return
   }
 
-  ctx.effect(() => {
-    const pending = connection.rpc.handle(RPC_CHANNEL, handler)
-    return () => {
-      void Promise.resolve(pending).then((dispose) => dispose()).catch(() => undefined)
+  /*
+   * 为什么自己注册 webServer 路由，而不用 `connection.rpc.handle(channel, handler)`：
+   *   · 那个 API 把路由注册到 **connection 服务自己的 ctx** 的 `webServer` 上，而 web-app 的
+   *     connection 行只 inject 了 [webRuntime]，于是任何第三方调用都会炸
+   *     `cannot get property "webServer" without inject`（不只是我们的问题，是这版 dsh 的空档）；
+   *   · 官方推荐的共享通道 `connection.rpc.intercept('/api', …)` 是**单占位**（api-gateway 已经占了，
+   *     再注册会抛 already has an interceptor）。
+   * 所以我们自己注册一条 prefix 路由，并复用 connection 服务公开的 `requestRejection()` 做
+   * 信任栅栏（Host/Origin + 浏览器会话认证），线格式保持与 Connection RPC 完全一致：
+   *   请求  { type:"client-request", rpcId, method, payload }
+   *   响应  { type:"server-response", rpcId, result: { ok:true, value } | { ok:false, error } }
+   * 浏览器侧照旧用 `ctx.connection.rpc.call('/git-vcs', endpoint, payload)`。
+   */
+  async function readJsonBody(request) {
+    const chunks = []
+    let size = 0
+    for await (const chunk of request) {
+      size += chunk.length
+      if (size > config.maxOutputBytes) throw new GitError('git-vcs/bad-request', '请求体过大')
+      chunks.push(chunk)
     }
-  }, 'dsh-git-vcs: rpc channel')
+    if (size === 0) return null
+    return JSON.parse(Buffer.concat(chunks).toString('utf8'))
+  }
+
+  function respondJson(response, status, value) {
+    const body = JSON.stringify(value)
+    response.writeHead(status, {
+      'content-type': 'application/json',
+      'content-length': Buffer.byteLength(body),
+      'cache-control': 'no-store',
+    })
+    response.end(body)
+  }
+
+  ctx.effect(() => webServer.register({
+    kind: 'prefix',
+    path: RPC_CHANNEL,
+    handler: async (request, response) => {
+      const rejection = connection.requestRejection(request)
+      if (rejection !== undefined) {
+        response.writeHead(rejection)
+        response.end(rejection === 401 ? 'unauthorized' : 'forbidden')
+        return
+      }
+      let message = null
+      try {
+        message = await readJsonBody(request)
+      } catch (cause) {
+        respondJson(response, 400, {
+          type: 'server-response',
+          rpcId: 'invalid-request',
+          result: { ok: false, error: { code: 'git-vcs/bad-request', message: cause instanceof Error ? cause.message : String(cause), details: {} } },
+        })
+        return
+      }
+      const rpcId = message !== null && typeof message.rpcId === 'string' ? message.rpcId : 'invalid-request'
+      const method = message !== null && typeof message.method === 'string' ? message.method : ''
+      const payload = message !== null && message.payload !== null && typeof message.payload === 'object' ? message.payload : {}
+      const result = await handler(method, payload, undefined)
+      respondJson(response, 200, { type: 'server-response', rpcId, result })
+    },
+  }), 'dsh-git-vcs: rpc channel')
   console.log(`[dsh-git-vcs] RPC 通道已注册：${RPC_CHANNEL}`)
 }

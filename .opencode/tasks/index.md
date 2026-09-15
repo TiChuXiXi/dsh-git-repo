@@ -7,7 +7,7 @@
 
 | 任务ID | 模块 | 状态 | 关联分支 | 最后更新 | 上下文入口 |
 |--------|------|------|---------|---------|-----------|
-| task-001 | Git 版本管理插件（右侧栏 tab + host RPC + IDEA 式 UI） | [提交勾选/门禁、差异面板（行号/换行/改动块跳转/统计）、Stash 引用修复、右键菜单、输入框与加载图标优化已落盘，自检 39/39；待跨盘符安装与真机验证] | main | 2026-09-15 | `.opencode/tasks/task-001/context.md` |
+| task-001 | Git 版本管理插件（右侧栏 tab + host RPC + IDEA 式 UI） | [真机本地链接安装完成；405 已修（自挂 webServer 前缀路由，探针 401 验证）；勾选提交的 pathspec 失败已修（先 add 再按 pathspec 提交）；allowPush 默认 true；自检 45/45] | main | 2026-09-15 | `.opencode/tasks/task-001/context.md` |
 
 ## 快速查找规则
 
