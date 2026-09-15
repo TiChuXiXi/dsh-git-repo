@@ -152,3 +152,18 @@
   - `scripts/verify-host.mjs`：新增 4 条断言（`show` noPatch 空 patch、`show/file` 单文件且只含一个 diff、缺 path、path 以 - 开头）→ **27 通过 / 0 失败**。
   - `scripts/preview-check.mjs`：端点清单改为「端点 + 载荷」，覆盖 `show` / `show/file`。
 - **验证**：`node --check` 两半区通过；`verify-host.mjs` 27/27；`preview-check.mjs` 全通过；预览 `gitvcs-3/pkg-9` 已重启（run-14）。
+
+### 2026-09-15（提交行右键菜单：分组 + 多级子菜单）
+
+- **需求**：提交列表加自定义右键菜单，包含对提交的基本操作，按功能分组，支持二级菜单。
+- **完成**（`lib/client.js`）：
+  - 数据模型 `commitMenuItems(commit)`：分组（`{kind:'group'}`）、叶子（`onPick`）、父项（`items`）三类；
+    `menuRows(items, path, level)` 递归渲染，父项 hover 或点击展开，子菜单按可用宽度自动左翻。
+  - 菜单分组：**查看**（展开详情）/ **复制**（完整 ID、短 ID、提交信息、作者与邮箱）/ **分支** ▸（新建分支并聚焦输入框、
+    检出此提交（分离 HEAD）、合并到当前分支）/ **修改历史（危险）** ▸（Cherry-Pick、Revert、重置到此提交 ▸ Soft/Mixed/Hard）。
+  - 门禁：`allowWrite` / `allowDangerous` 关闭时对应项置灰；破坏性操作走 `ask()` 二次确认。
+  - 交互：`onContextMenu` 屏蔽原生菜单并把坐标换算成面板根相对坐标（`MENU_WIDTH` 夹取、越界上移）；
+    子菜单栈状态 `submenuStack` + `menuHover`；点菜单外 / `Esc` 关闭（`document` 监听，菜单内 `stopPropagation`）；
+    右键行同时高亮该行；面板底部加了"提交行右键打开操作菜单"的提示。
+- **验证**：`node --check` 通过；`verify-host.mjs` 27/27；`preview-check.mjs` 全通过；`validate-plugin.mjs` 0 ERROR / 0 WARN；
+  预览 `gitvcs-3/pkg-9` 已重启（run-15）。

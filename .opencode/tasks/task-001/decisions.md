@@ -39,3 +39,8 @@
 | 2026-09-15 | 提交详情面板从「右侧栏」改为「Log 下方」的上下布局，高度用顶边拖拽条（`RowSplitter`，pointer capture + `row-resize`）调整，默认 300px、钳制 140–720px 且 `maxHeight: 80%` | 用户要求上下布局并把面板放下面；80% 上限避免面板拖高后溢出容器。为此把共用的 `S.body` / `S.detail` 拆开：Local Changes 仍用「左右布局」的 `S.body` + `S.detail`，Log 用新的 `S.bodyStack` + `S.detailBottom`（一开始改共用样式把 Local Changes 的差异栏也带歪了） |
 | 2026-09-15 | `show` 增加 `noPatch: true`（只跑 meta + name-status 两个探测），新增 `show/file` 端点按需拉单个文件的 diff | 原来点一次提交就把整次提交的 patch 全传过来并整段渲染；用户要求"默认不显示文件详情、点哪个文件才展示哪个"。顺带省掉一次 git show 与整包传输 |
 | 2026-09-15 | 详情里的文件行：hover 高亮（`detailHover` 状态）+ `cursor: pointer` + 点击选中（`detailFile`），选中行用 `detailFileRowOn`，再点一次收起 | 零构建下没有 `:hover`，仍用状态模拟；选中态与 hover 态分开，避免"点了看不出选中哪个" |
+| 2026-09-15 | 提交行右键菜单用**数据模型 + 递归渲染**（`commitMenuItems` 产出 `{kind:'group'}` / 叶子 / `{items}` 父项，`menuRows(items, path, level)` 递归），而不是写死两层 JSX | 需求是"按功能分组 + 支持二级菜单"，数据模型让加一项/加一层只改数据；`level` 同时用于定位子菜单（父项所在层 = 子菜单在栈里的下标） |
+| 2026-09-15 | 子菜单栈的收起规则：**叶子只收起比它更深的层级**（`current.slice(0, level)`），父项在 `level` 处替换 | 最初写成"hover 叶子就清空整个栈"，鼠标从父项移进子菜单的第一项就会把子菜单关掉，根本点不到 |
+| 2026-09-15 | 关闭菜单用 `document` 的 `mousedown` + `keydown(Escape)` 监听（`useEffect` 内注册并按需清理），菜单容器自身 `onMouseDown` 里 `stopPropagation` | 面板内点空白就关是菜单的基本预期；React 的 synthetic `stopPropagation` 会调用原生 `stopPropagation`，所以文档级监听不会在菜单内部误触发 |
+| 2026-09-15 | 菜单/子菜单坐标全部换算成**面板根相对坐标**（`rootRef.getBoundingClientRect()`），并用 `MENU_WIDTH` 估算宽度做夹取与左翻 | 菜单挂在面板根上（`position:relative`）而不是滚动容器里，避免被 `overflow` 裁剪；根相对坐标是唯一与滚动位置无关的坐标系 |
+| 2026-09-15 | 右键点「基于此提交新建分支…」→ 打开详情 + `focusBranch` 标志，`useEffect` 里对 `branchRef` 调 `focus()` | 菜单里没法输分支名；把输入框聚焦比弹 prompt 更符合面板语义，也不需要额外对话框组件 |
