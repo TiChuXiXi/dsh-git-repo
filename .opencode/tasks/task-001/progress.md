@@ -217,3 +217,15 @@
 - **用户反馈**：本地 main 一直高亮选中；远程分支没有 hover 也不可点；分支模块不需要选中效果，只留 hover。
 - **改动**：`renderBranches` 不再用 `S.rowOn`（那是 Local Changes / Log 的真实选中态），当前分支改为行首 `*` + 绿色加粗分支名；新增 `hoverBranch` 状态给所有分支行做 hover 背景；行样式 `cursor: default`（操作都在行内按钮）。
 - **验证**：`node --check` 通过；`verify-host.mjs` 34/34；预览 `gitvcs-3/pkg-9` 已重启（run-21）。
+
+### 2026-09-15（第一部分：提交勾选 + 提交门禁 + 错误改 toast）
+
+- **用户需求（第一部分）**：① 没有文件改动时不该能点 Commit（点了才报错不合适）；② 不再用顶部错误横幅，全部走 toast；③ 每行改动前加勾选框，只提交勾选的文件，一个都没勾时 Commit 不可点。第二部分（三态勾选 + hunk 级部分提交）要求先出方案。
+- **完成**：
+  - 错误提示：删掉 rror 状态与顶部横幅（连同 S.banner 样式），新增 eportError() → 右下角浮动 toast（6 秒；成功类提示仍是 2 秒），全部 7 处 setError(result.error) 改成 eportError。
+  - 提交勾选：checkedPaths（path → bool）+ selectNew（刷新后新出现的改动默认是否勾上）；行内自绘勾选框（点它 stopPropagation，不打开差异）；提交区加「全选 / 全不选」与 已选 x/y 个文件 · z 个已暂存 统计。
+  - 提交门禁：canCommit = !busy && allowWrite && 有信息 && (amend || 勾选数>0)，悬停分别说明原因（写操作关闭 / 先填提交信息 / 工作区无可提交改动 / 没有勾选任何文件）；commit() 只把勾选的 paths 传给 host。
+  - Amend 明确为「修补上一次提交，忽略勾选」，按钮文案里注明。
+- **第二部分方案**：写入 .opencode/tasks/task-001/plan-partial-commit.md（三态模型、hunk 选择、stage/hunks 端点、路线 A「提交=提交索引」、P1-P4 分阶段与工作量、需要用户拍板的 3 件事）。
+- **验证**：
+ode --check 通过；erify-host.mjs 34/34；preview-check.mjs 全通过；预览 gitvcs-3/pkg-9 已重启（run-22）。
