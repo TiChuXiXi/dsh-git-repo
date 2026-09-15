@@ -211,7 +211,9 @@ function parseCommitList(stdout) {
 
 const LOG_FORMAT = '%H%x1f%h%x1f%an%x1f%ae%x1f%ad%x1f%P%x1f%s%x1f%b%x1e'
 // 末段 %(objectname) 是完整哈希：Log 的提交树列靠它把「分支标签」钉到对应提交上。
-const BRANCH_FORMAT = '%(refname)%1f%(refname:short)%1f%(objectname:short)%1f%(upstream:short)%1f%(upstream:track,nobracket)%1f%(committerdate:iso-strict)%1f%(subject)%1f%(objectname)'
+// 再末段 %(symref) 非空表示这是符号引用（典型：refs/remotes/origin/HEAD，它的 %(refname:short)
+// 会是 "origin" 而不是 "origin/HEAD"），parseBranchList 会跳过它们。
+const BRANCH_FORMAT = '%(refname)%1f%(refname:short)%1f%(objectname:short)%1f%(upstream:short)%1f%(upstream:track,nobracket)%1f%(committerdate:iso-strict)%1f%(subject)%1f%(objectname)%1f%(symref)'
 const STASH_FORMAT = '%gd%x1f%H%x1f%ad%x1f%s%x1e'
 /** for-each-ref 一次同时取本地与远程分支。 */
 const REF_SCOPES = ['refs/heads', 'refs/remotes']
@@ -224,6 +226,9 @@ function parseBranchList(stdout) {
     if (line.trim() === '') continue
     const parts = line.split('\x1f')
     if (parts.length < 7) continue
+    // 符号引用（refs/remotes/origin/HEAD 之类）不是分支：它的 short 名会退化成 "origin"，
+    // 留在列表里就会和真正的 origin/main 一起显示成两条远程分支。
+    if ((parts[8] ?? '') !== '') continue
     const ahead = /ahead (\d+)/.exec(parts[4])
     const behind = /behind (\d+)/.exec(parts[4])
     const row = {
@@ -475,6 +480,17 @@ export function apply(ctx, rawConfig) {
       throw new GitError('git-vcs/bad-request', 'path 非法')
     }
     return raw
+  }
+
+  /** 取 push 的 remote 参数：缺省 origin，拒绝空串 / 空白 / NUL / 以 - 开头。 */
+  function readRemoteArg(raw) {
+    if (raw === undefined || raw === null || raw === '') return 'origin'
+    if (typeof raw !== 'string') throw new GitError('git-vcs/bad-request', 'remote 必须是字符串')
+    const name = raw.trim()
+    if (name === '' || name.includes('\0') || name.startsWith('-') || /\s/.test(name)) {
+      throw new GitError('git-vcs/bad-request', `remote 非法：${raw}`)
+    }
+    return name
   }
 
   function readRef(payload, key = 'ref') {
@@ -883,9 +899,14 @@ export function apply(ctx, rawConfig) {
     async push(payload, signal) {
       requirePush()
       const { root } = await ensureWorkdir(payload?.cwd, signal)
+      const branch = typeof payload?.branch === 'string' && payload.branch !== '' ? readRef(payload, 'branch') : null
       const args = ['push']
-      if (payload?.setUpstream === true) args.push('--set-upstream', 'origin', readRef(payload, 'branch'))
-      else if (typeof payload?.branch === 'string' && payload.branch !== '') args.push(readRef(payload, 'branch'))
+      if (branch !== null) {
+        // 必须显式给出 remote：`git push <branch>` 会把分支名当成仓库名（"does not appear to be a git repository"）。
+        const remote = readRemoteArg(payload?.remote)
+        if (payload?.setUpstream === true) args.push('--set-upstream', remote, branch)
+        else args.push(remote, branch)
+      }
       const result = await runGit(args, { cwd: root, signal })
       gitOk(result)
       return { stdout: result.stdout, stderr: result.stderr }

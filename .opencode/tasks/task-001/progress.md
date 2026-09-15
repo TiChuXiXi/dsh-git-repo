@@ -203,3 +203,11 @@
 - **实现**：commitMenuItems 新增「远程」分组（排在「修改历史（危险）」之前）——「推送当前分支（Push）」git push（hint 显示 upstream），epo.upstream === '' && 非分离 HEAD 时追加「推送并设置 upstream」→ push {setUpstream:true, branch}（host 走 `--set-upstream origin <branch>`）。
 - **门禁**：与工具栏一致 `allowPush !== true` 时置灰并给出悬停原因（配置未读到 / allowPush=false）；分离 HEAD 下推送置灰。
 - **验证**：`node --check` 通过；`verify-host.mjs` 30/30；预览 `gitvcs-3/pkg-9` 已重启（run-19）。
+
+### 2026-09-15（推送迁到 Branches 页 + 过滤 origin/HEAD 符号引用）
+
+- **需求**：① 把推送从提交右键菜单挪到分支模块；② 远程分支里为什么有 origin 与 origin/main 两条。
+- **② 的根因**：`refs/remotes/origin/HEAD` 的 `%(refname:short)` 实际是 **origin**（不是 origin/HEAD），`parseBranchList` 没过滤符号引用 → 远程分支多一条假的 origin（Log 的分支标签同样会多一个）。修法：`BRANCH_FORMAT` 加 `%(symref)`，非空即跳过。
+- **① 的实现**：提交右键菜单删掉「远程」分组；Branches 页本地分支行加「推送」按钮（无 upstream 时变「推送并设 upstream」→ `--set-upstream <remote> <branch>`，remote 取自该分支 upstream，缺省 origin），与工具栏同一道 allowPush 门禁；页内加了一行说明。
+- **顺带修 host 的 push 参数 bug**：原来 `push {branch}` 拼成 `git push <branch>`（git 会把分支名当仓库名）；现在强制 `git push <remote> <branch>`，并新增 `readRemoteArg` 校验（拒绝空/空白/NUL/以 - 开头）。
+- **验证**：`verify-host.mjs` 新增 4 条断言（push 带 remote、--set-upstream 带 remote+分支、非法 remote 被拒、branches 过滤 origin/HEAD）→ **34 通过 / 0 失败**；预览 `gitvcs-3/pkg-9` 已重启（run-20）。

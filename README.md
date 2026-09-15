@@ -107,9 +107,6 @@ node scripts\verify-host.mjs D:\zxh\code\git-plugin
     - **查看**：展开提交详情
     - **复制**：复制完整 ID / 短 ID / 提交信息 / 作者与邮箱
     - **分支** ▸：基于此提交新建分支（自动展开详情并聚焦分支名输入框）、检出此提交（分离 HEAD）、把此提交合并到当前分支
-    - **远程**：推送当前分支（Push，右侧提示 upstream，如 `git push → origin/main`）；**没有 upstream 时**额外给
-      「推送并设置 upstream」（`git push --set-upstream origin <分支>`，不用回终端设跟踪关系）。
-      与工具栏 Push 同一道门禁：`allowPush !== true`（默认）时置灰，悬停说明原因；分离 HEAD 下推送项同样置灰。
     - **修改历史（危险）** ▸：拣选（Cherry-Pick）、回滚（Revert）、重置到此提交 ▸（Soft / Mixed / Hard，Hard 走二次确认）
     - 受 `allowWrite` / `allowDangerous` 门禁的项自动置灰禁用。
   - **Commit 列**：显示短哈希，**直接点击短哈希即复制完整提交 ID**（无独立按钮），
@@ -124,7 +121,11 @@ node scripts\verify-host.mjs D:\zxh\code\git-plugin
     以及变更文件列表——**默认不展示任何文件的差异**，文件行有 hover 高亮、光标 `pointer`，
     **点某个文件才按需拉取该文件的 diff**（`show/file` 端点），再点一次收起；
     点提交时只取元数据与文件列表（`show` + `noPatch`），不再一次性传输整次提交的 patch。
-- **Branches**：本地 / 远程分支（当前分支高亮），切换、合并、删除，以及「新建并切换」
+- **Branches**：本地 / 远程分支（当前分支高亮）。远程分支列表会**过滤符号引用**——`refs/remotes/origin/HEAD`
+  的 `%(refname:short)` 会退化成 `origin`，不过滤就会和真正的 `origin/main` 一起显示成两条。每行操作：
+  本地分支 **推送**（有 upstream 时 `git push <remote> <branch>`；没有 upstream 时按钮变成「推送并设 upstream」，
+  走 `git push --set-upstream <remote> <branch>`，`remote` 取自该分支的 upstream，缺省 `origin`）、切换、合并、删除，
+  顶部还有「新建并切换」。推送与工具栏 Push 同一道门禁（`allowPush`，默认关闭）。
 - **Remotes**：`git remote -v` 的全部远程与 fetch / push 地址；顶部表单可填**名字 + URL（+ 可选 push URL）→ Add Remote**，
   每个远程行有 **Remove** 危险按钮（点击走内联二次确认）。均受 `allowWrite` 门禁控制。
 - **Stash**：stash 列表与 push / pop / apply / drop

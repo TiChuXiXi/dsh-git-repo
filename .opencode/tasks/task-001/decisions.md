@@ -49,3 +49,5 @@
 | 2026-09-15 | tab 标题组件自带 `padding-right: 32px`（`min-width: 104px`）预留关闭按钮区 | dockkit 的 chip 用遮罩渐隐（标题容器最后 14-30px）给 × 让位，标题内容不预留就会被吃掉尾部；预留后 chip 也自然变宽（用户要的'再加宽'） |
 | 2026-09-15 | 新增选中项校验 effect（依赖 [status, applied]）：条目消失则清空 selected/patch，条目换分组则跟随（staged <-> worktree），ignored 项不参与跟随 | 列表与选中项都是从快照派生的 UI 状态，快照刷新后必须复核；否则会留下指向已不存在条目的差异面板与写操作按钮 |
 | 2026-09-15 | 右键菜单新增「远程」分组（位置在「修改历史（危险）」之前，危险项保持最底）：推送当前分支 + 无 upstream 时追加「推送并设置 upstream」 | push 与工具栏共用 allowPush 门禁与 host 的 push 端点（setUpstream: true 走 git push --set-upstream origin <branch>）；无 upstream 时普通 push 必失败，所以按 epo.upstream === '' 条件补一条 -u 入口，避免用户回终端设跟踪关系 |
+| 2026-09-15 | 推送入口从提交右键菜单**迁移到 Branches 页**（本地分支行内按钮）；host 的 push 强制显式 remote | 用户要求推送归属分支模块；另外原来 push {branch} 拼成 git push <branch>，git 会把分支名当仓库名，改为 git push <remote> <branch>（remote 取自该分支 upstream，缺省 origin），无 upstream 时按钮变「推送并设 upstream」走 --set-upstream |
+| 2026-09-15 | BRANCH_FORMAT 增加 %(symref)，parseBranchList 跳过符号引用 | efs/remotes/origin/HEAD 的 %(refname:short) 是 origin（不是 origin/HEAD），留在列表里会出现「origin + origin/main」两条远程分支，Log 的分支标签也会多一个假 origin |

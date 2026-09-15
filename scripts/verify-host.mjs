@@ -154,7 +154,12 @@ await check('branches 解析', 'branches', { cwd }, (value) => {
   if (main === undefined) return '没有找到 main 分支'
   // 提交树列靠完整哈希把分支标签钉到提交上，缺了就只能退化成短哈希匹配。
   if (typeof main.hash !== 'string' || main.hash.length < 40) return `分支完整哈希异常：${main.hash}`
-  return undefined
+  // 符号引用（refs/remotes/origin/HEAD）的 %(refname:short) 会退化成 "origin"，必须过滤掉，
+  // 否则远程分支里会同时出现 "origin" 与 "origin/main"。
+  const bogus = value.remote.filter((row) => row.name.includes('/') === false)
+  if (bogus.length > 0) return `远程分支里有符号引用残留：${bogus.map((row) => row.name).join(', ')}`
+  const symbolic = [...value.local, ...value.remote].filter((row) => /(^|\/)HEAD$/.test(row.name))
+  return symbolic.length === 0 ? undefined : `仍有 HEAD 符号引用：${symbolic.map((row) => row.name).join(', ')}`
 })
 
 await check('snapshot 分支标签可定位提交', 'repo/snapshot', { cwd, limit: 50, consoleLimit: 60 }, (value) => {
@@ -302,6 +307,55 @@ await check('未跟踪文件：untracked=true 拿到新文件差异', 'diff', { 
   if (value.patch.includes('new file mode') === false) return 'patch 不像新文件差异'
   if (value.patch.includes('第二行') === false) return 'patch 没带上文件内容'
   return undefined
+})
+
+/* ------------------------------------------------------- push 的参数构造
+ * allowPush 默认关闭，所以要另起一个实例（每个实例自带 handler 与命令流水）。
+ * 关键回归：`git push <branch>` 会把分支名当成仓库名，必须显式带 remote。
+ */
+let pushHandler
+const pushCtx = {
+  get(key) {
+    if (key === 'subprocess') return fakeSubprocess
+    if (key === 'connection') {
+      return {
+        rpc: {
+          handle(channel, fn) {
+            pushHandler = fn
+            return Promise.resolve(async () => undefined)
+          },
+        },
+      }
+    }
+    return undefined
+  },
+  effect(fn) {
+    fn()
+  },
+}
+apply(pushCtx, { allowWrite: true, allowPush: true, allowDangerous: true })
+
+const pushCall = (payload) => pushHandler('push', { cwd: remoteScratch, ...payload }, new AbortController().signal)
+await pushCall({ branch: 'main', remote: 'origin' })
+await pushCall({ branch: 'main', remote: 'origin', setUpstream: true })
+const pushLog = await pushHandler('console/list', {}, new AbortController().signal)
+const pushArgvs = pushLog.ok === true ? pushLog.value.entries.map((entry) => entry.argv.join(' ')) : []
+if (pushArgvs.includes('git push origin main')) results.push('OK   push 分支时带上 remote（git push origin main）')
+else results.push(`FAIL push 未带 remote：${JSON.stringify(pushArgvs.slice(-2))}`)
+if (pushArgvs.includes('git push --set-upstream origin main')) results.push('OK   push --set-upstream 带上 remote 与分支')
+else results.push(`FAIL push --set-upstream 参数异常：${JSON.stringify(pushArgvs.slice(-2))}`)
+
+const badRemote = await pushCall({ branch: 'main', remote: '--upload-pack=evil' })
+if (badRemote.ok === false && badRemote.error.code === 'git-vcs/bad-request') results.push('OK   push 拒绝以 - 开头的 remote')
+else results.push(`FAIL push 未拒绝非法 remote：${JSON.stringify(badRemote).slice(0, 160)}`)
+
+// branches 的符号引用过滤：临时仓库里造一个 origin/HEAD 符号引用。
+rawGit(['update-ref', 'refs/remotes/origin/main', 'HEAD'])
+rawGit(['symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/main'])
+await check('branches 过滤 origin/HEAD 符号引用', 'branches', { cwd: remoteScratch }, (value) => {
+  const names = [...value.local, ...value.remote].map((row) => row.name)
+  if (names.includes('origin/main') === false) return `没看到 origin/main：${names.join(', ')}`
+  return names.includes('origin') === false ? undefined : `符号引用没被过滤：${names.join(', ')}`
 })
 
 rmSync(remoteScratch, { recursive: true, force: true })
